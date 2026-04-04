@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 # Import custom modules
 from models import Match, Prediction, Coupon, User, BotActivity
-from odds_api_scraper import TheOddsAPIScraper
+from api_football_scraper import APIFootballScraper
 from ai_analyzer_v2 import AIMatchAnalyzerV2
 from coupon_generator_v2 import CouponGeneratorV2
 from telegram_bot import BettingBot
@@ -33,7 +33,7 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # Initialize components
-scraper = TheOddsAPIScraper()
+scraper = APIFootballScraper()
 analyzer = AIMatchAnalyzerV2()
 coupon_gen = CouponGeneratorV2()
 bot = BettingBot(db, scraper, analyzer, coupon_gen)
