@@ -1,0 +1,85 @@
+{
+  "theme": "dark",
+  "archetype": "Archetype 2: The Performance Pro",
+  "app_type": "dashboard",
+  "typography": {
+    "headings": {
+      "font_family": "Bebas Neue",
+      "font_weight": "900",
+      "letter_spacing": "tracking-tighter",
+      "scale": {
+        "h1": "text-4xl sm:text-5xl lg:text-6xl",
+        "h2": "text-2xl sm:text-3xl lg:text-4xl",
+        "h3": "text-xl sm:text-2xl",
+        "h4": "text-lg sm:text-xl"
+      }
+    },
+    "body": {
+      "font_family": "DM Sans",
+      "font_weight": "400",
+      "line_height": "leading-relaxed",
+      "scale": {
+        "base": "text-base",
+        "small": "text-sm",
+        "xs": "text-xs tracking-[0.2em] uppercase"
+      }
+    }
+  },
+  "colors": {
+    "background": "#0A0A0A",
+    "surface_1": "#141414",
+    "surface_2": "#1A1A1A",
+    "border": "rgba(255,255,255,0.1)",
+    "primary": "#007AFF",
+    "accent_danger": "#FF3B30",
+    "accent_success": "#00FF66",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "text_muted": "#52525B"
+  },
+  "layout": {
+    "strategy": "Control Room Grid",
+    "base_grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4",
+    "gap": "gap-4 md:gap-6",
+    "container_padding": "p-4 md:p-6",
+    "surface_style": {
+      "description": "Grid Borders (The Technical Look). Replace soft shadows with 1px solid strokes or 2px 'Inner Glow' highlights.",
+      "classes": "border border-white/10 bg-[#141414] rounded-lg md:rounded-xl overflow-hidden"
+    }
+  },
+  "components": {
+    "cards": "Flat background, 1px subtle border, no shadow. On hover: slight lift (-translate-y-1), border color darkens or brightens (e.g. border-blue-500/50).",
+    "buttons": "High-saturation accent blocks. Tactical minimalism. Use Primary color sparingly for major CTAs only. Must have hover states (lighter hue) and focus rings.",
+    "tables": "Use Shadcn Table. Dense, high-contrast rows. Headers should be uppercase, tracking-[0.2em], text-xs.",
+    "charts": "Recharts. Dark mode compatible. Grid lines should be very subtle (opacity 0.1). Use Volt Blue and Neon Green for data lines.",
+    "badges": "Sharp edges, 1px border. No soft backgrounds. e.g., border border-[#00FF66] text-[#00FF66] bg-transparent."
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "weight": "bold",
+    "installation": "yarn add @phosphor-icons/react"
+  },
+  "testing": {
+    "requirements": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case, role-based."
+  },
+  "media": {
+    "backgrounds": [
+      {
+        "category": "header_texture",
+        "url": "https://images.unsplash.com/photo-1771873679764-4e5503b69040?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhcmslMjBncmlkJTIwdGV4dHVyZXxlbnwwfHx8fDE3NzUyODgzMzV8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract grid pattern. Use with heavy black overlay (e.g. bg-[#0A0A0A]/95 or black gradient) to create a subtle tactical grid in the header or hero of the dashboard."
+      }
+    ]
+  },
+  "animations": {
+    "hover": "Hover state must be explicitly set (e.g. hover:bg-[#1A1A1A] hover:text-white). Transition properties must be specific.",
+    "interactions": "Micro-interactions on buttons and table rows. Entrance animations (staggered) for lists using Framer Motion."
+  },
+  "specific_views": {
+    "bot_activity": "Top row, spanning full width using grid. Use large numbers (text-4xl or 5xl) for metrics like users and coupons. Pair with small trending up/down indicators in neon green.",
+    "live_matches": "Grid span 2 or 3. Use dense table. Show team names, odds, and a flashing 'Live' red indicator.",
+    "generated_coupons": "Vertical feed style (col-span-1 row-span-2). Cards detailing coupon odds, risk level (color coded: red/high, yellow/med, green/low).",
+    "ai_analysis": "Terminal/Retro look for logs. Dark black background, monospace font for logs, neon green text for successful events.",
+    "bot_statistics": "Main chart area (col-span-full md:col-span-2). Area or Line chart showing user growth or coupon success over time using Recharts."
+  }
+}
