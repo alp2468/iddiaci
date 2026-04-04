@@ -1,5 +1,6 @@
 from typing import List, Dict
 import logging
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -105,39 +106,70 @@ class CouponGeneratorV2:
                 })
         return enriched
     
+    def _weighted_sample(self, items: List[Dict], count: int, weight_key: str = 'adjusted_confidence') -> List[Dict]:
+        """Agirlikli rastgele secim - yuksek guvenli olanlar daha fazla sans alir ama garanti degil"""
+        if len(items) <= count:
+            return items[:]
+        
+        weights = []
+        for item in items:
+            w = max(item.get(weight_key, 50), 1)
+            weights.append(w)
+        
+        selected = []
+        remaining = list(range(len(items)))
+        remaining_weights = weights[:]
+        
+        for _ in range(count):
+            if not remaining:
+                break
+            total = sum(remaining_weights)
+            if total <= 0:
+                idx_in_remaining = random.randint(0, len(remaining) - 1)
+            else:
+                r = random.uniform(0, total)
+                cumulative = 0
+                idx_in_remaining = 0
+                for j, w in enumerate(remaining_weights):
+                    cumulative += w
+                    if cumulative >= r:
+                        idx_in_remaining = j
+                        break
+            
+            selected.append(items[remaining[idx_in_remaining]])
+            remaining.pop(idx_in_remaining)
+            remaining_weights.pop(idx_in_remaining)
+        
+        return selected
+    
     def _generate_banko_coupon(self, predictions: List[Dict]) -> List[Dict]:
-        # Adjusted confidence'a göre sırala (lig önceliği dahil)
-        high_confidence = sorted(
-            [p for p in predictions if p.get('adjusted_confidence', 0) > 60],
-            key=lambda x: x.get('adjusted_confidence', 0),
-            reverse=True
-        )
+        high_confidence = [p for p in predictions if p.get('adjusted_confidence', 0) > 60]
         safe_predictions = [
             p for p in high_confidence
             if 1.3 <= p.get('predicted_odds', 0) <= 2.5
         ]
         if not safe_predictions:
-            safe_predictions = high_confidence[:3]
-        if not safe_predictions and predictions:
-            safe_predictions = predictions[:3]
+            safe_predictions = high_confidence[:] if high_confidence else predictions[:]
         
-        # En fazla 1 alt lig maçı (öncelik < 7)
-        selected = []
-        low_league_count = 0
-        for pred in safe_predictions:
-            if pred.get('league_priority', 5) < 7:
-                if low_league_count < 1:  # En fazla 1 alt lig
-                    selected.append(pred)
-                    low_league_count += 1
-            else:
-                selected.append(pred)
-            
-            if len(selected) >= 3:
-                break
+        # Lig filtresi uygula: en fazla 1 alt lig
+        top_league = [p for p in safe_predictions if p.get('league_priority', 5) >= 7]
+        low_league = [p for p in safe_predictions if p.get('league_priority', 5) < 7]
         
+        # Agirlikli rastgele sec
+        target_count = random.choice([2, 3])
+        selected = self._weighted_sample(top_league, target_count)
+        
+        # Eksikse alt ligden 1 tane ekle
+        if len(selected) < target_count and low_league:
+            selected.extend(self._weighted_sample(low_league, 1))
+        
+        # Hala bossa fallback
         if not selected:
-            selected = safe_predictions[:3]
+            selected = self._weighted_sample(safe_predictions, target_count)
+        if not selected:
+            selected = self._weighted_sample(predictions, 2)
         
+        # Toplam oran kontrolu
         total = 1.0
         for p in selected:
             total *= p.get('predicted_odds', 1.0)
@@ -146,59 +178,57 @@ class CouponGeneratorV2:
         return selected
     
     def _generate_orta_coupon(self, predictions: List[Dict]) -> List[Dict]:
-        medium_confidence = sorted(
-            [p for p in predictions if p.get('adjusted_confidence', 0) > 55],
-            key=lambda x: x.get('adjusted_confidence', 0),
-            reverse=True
-        )
+        medium_confidence = [p for p in predictions if p.get('adjusted_confidence', 0) > 55]
         medium_predictions = [
             p for p in medium_confidence
             if 1.5 <= p.get('predicted_odds', 0) <= 2.8
         ]
         if not medium_predictions:
-            medium_predictions = medium_confidence
-        if not medium_predictions and predictions:
-            medium_predictions = predictions
+            medium_predictions = medium_confidence[:] if medium_confidence else predictions[:]
         
-        # En fazla 2 alt lig maçı
-        selected = []
-        low_league_count = 0
-        for pred in medium_predictions:
-            if pred.get('league_priority', 5) < 7:
-                if low_league_count < 2:
-                    selected.append(pred)
-                    low_league_count += 1
-            else:
-                selected.append(pred)
-            
-            if len(selected) >= 6:
-                break
+        # Lig filtresi
+        top_league = [p for p in medium_predictions if p.get('league_priority', 5) >= 7]
+        low_league = [p for p in medium_predictions if p.get('league_priority', 5) < 7]
         
-        for count in range(4, 6):
-            temp_selected = selected[:count]
-            total = 1.0
-            for p in temp_selected:
-                total *= p.get('predicted_odds', 1.0)
-            if 5.0 <= total <= 8.0:
-                return temp_selected
-        return selected[:4]
+        target_count = random.choice([3, 4, 5])
+        selected = self._weighted_sample(top_league, target_count)
+        
+        # Eksikse alt ligden max 2 ekle
+        remaining_need = target_count - len(selected)
+        if remaining_need > 0 and low_league:
+            selected.extend(self._weighted_sample(low_league, min(2, remaining_need)))
+        
+        if not selected:
+            selected = self._weighted_sample(medium_predictions, target_count)
+        if not selected:
+            selected = self._weighted_sample(predictions, 4)
+        
+        # Oran hedefi 5-8 arasi: fazla yuksekse kirp
+        total = 1.0
+        for p in selected:
+            total *= p.get('predicted_odds', 1.0)
+        if total > 8.0 and len(selected) > 3:
+            selected = selected[:3]
+        
+        return selected
     
     def _generate_zor_coupon(self, predictions: List[Dict]) -> List[Dict]:
-        high_odds = sorted(
-            predictions,
-            key=lambda x: x.get('predicted_odds', 0),
-            reverse=True
-        )
-        for i in range(len(high_odds)):
-            for j in range(i + 1, len(high_odds)):
-                p1 = high_odds[i]
-                p2 = high_odds[j]
+        # Tum gecerli yuksek oran ciftlerini bul
+        valid_pairs = []
+        for i in range(len(predictions)):
+            for j in range(i + 1, len(predictions)):
+                p1 = predictions[i]
+                p2 = predictions[j]
                 total = p1.get('predicted_odds', 1.0) * p2.get('predicted_odds', 1.0)
                 if total >= 10:
-                    return [p1, p2]
-        sorted_by_confidence = sorted(
-            predictions,
-            key=lambda x: x.get('confidence', 0),
-            reverse=True
-        )
-        return sorted_by_confidence[:6]
+                    valid_pairs.append((p1, p2, total))
+        
+        if valid_pairs:
+            # Rastgele bir cift sec
+            pair = random.choice(valid_pairs)
+            return [pair[0], pair[1]]
+        
+        # Cift bulunamazsa: rastgele 5-7 mac sec (karma strateji)
+        target = random.choice([5, 6, 7])
+        selected = self._weighted_sample(predictions, target, weight_key='predicted_odds')
+        return selected if selected else predictions[:6]
