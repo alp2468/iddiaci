@@ -41,11 +41,14 @@ class CouponGeneratorV2:
                     })
             
             return {
+                "id": str(__import__('uuid').uuid4()),
                 "risk_level": risk_level,
                 "matches": coupon_matches,
                 "total_odds": round(total_odds, 2),
                 "potential_return": round(total_odds * 100, 2),
-                "match_count": len(coupon_matches)
+                "match_count": len(coupon_matches),
+                "status": "pending",
+                "result_checked": False
             }
         except Exception as e:
             logger.error(f"Error generating coupon: {str(e)}")

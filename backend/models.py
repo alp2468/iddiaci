@@ -74,7 +74,10 @@ class Coupon(BaseModel):
     total_odds: float
     potential_return: Optional[float] = None  # 100 TL için
     user_telegram_id: Optional[str] = None
+    status: str = "pending"  # pending, won, lost
+    result_checked: bool = False
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    result_date: Optional[str] = None
 
 class User(BaseModel):
     model_config = ConfigDict(extra="ignore")

@@ -179,6 +179,72 @@ async def get_users():
         logger.error(f"Error getting users: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.post("/coupons/{coupon_id}/status")
+async def update_coupon_status(coupon_id: str, status: str):
+    """
+    Update coupon status (won/lost)
+    """
+    try:
+        from datetime import datetime
+        
+        result = await db.coupons.update_one(
+            {"id": coupon_id},
+            {
+                "$set": {
+                    "status": status,
+                    "result_checked": True,
+                    "result_date": datetime.utcnow().isoformat()
+                }
+            }
+        )
+        
+        if result.modified_count > 0:
+            return {"status": "success", "message": "Kupon durumu güncellendi"}
+        else:
+            raise HTTPException(status_code=404, detail="Kupon bulunamadı")
+    except Exception as e:
+        logger.error(f"Error updating coupon: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/success-rates")
+async def get_success_rates():
+    """
+    Get monthly success rates by risk level
+    """
+    try:
+        from datetime import datetime, timedelta
+        
+        now = datetime.utcnow()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        all_coupons = await db.coupons.find({
+            "created_at": {"$gte": month_start.isoformat()}
+        }).to_list(1000)
+        
+        stats = {
+            'banko': {'total': 0, 'won': 0},
+            'orta': {'total': 0, 'won': 0},
+            'zor': {'total': 0, 'won': 0}
+        }
+        
+        for coupon in all_coupons:
+            risk = coupon.get('risk_level', 'banko')
+            if risk in stats:
+                stats[risk]['total'] += 1
+                if coupon.get('status') == 'won':
+                    stats[risk]['won'] += 1
+        
+        return {
+            'banko': round((stats['banko']['won'] / stats['banko']['total'] * 100) if stats['banko']['total'] > 0 else 0),
+            'orta': round((stats['orta']['won'] / stats['orta']['total'] * 100) if stats['orta']['total'] > 0 else 0),
+            'zor': round((stats['zor']['won'] / stats['zor']['total'] * 100) if stats['zor']['total'] > 0 else 0),
+            'total_coupons': len(all_coupons),
+            'won_coupons': sum(1 for c in all_coupons if c.get('status') == 'won')
+        }
+    except Exception as e:
+        logger.error(f"Error getting success rates: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Include router
 app.include_router(api_router)
 
