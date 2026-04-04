@@ -19,7 +19,7 @@ class BettingBot:
         self.coupon_gen = coupon_gen
         self.cache_manager = MatchCacheManager(db, scraper)
         self.premium_helper = PremiumHelper()
-        self.admin_id = os.environ.get('ADMIN_TELEGRAM_ID', '7936836513')  # SENİN TELEGRAM ID'N
+        self.admin_id = os.environ.get('ADMIN_TELEGRAM_ID', '1949985365')
         self.app = None
         self.waiting_for_receipt = {}  # Ödeme dekontu bekleyen kullanıcılar
     
