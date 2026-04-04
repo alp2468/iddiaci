@@ -87,8 +87,35 @@ class User(BaseModel):
     username: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    
+    # Premium fields
+    is_premium: bool = False
+    premium_since: Optional[str] = None
+    premium_until: Optional[str] = None
+    premium_type: str = "free"  # "free", "monthly", "yearly"
+    
+    # Usage tracking
+    daily_coupon_count: int = 0
+    last_coupon_date: Optional[str] = None
+    total_coupons: int = 0
+    
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     last_interaction: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+class Payment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_telegram_id: str
+    amount: float
+    payment_type: str  # "premium_monthly", "premium_yearly"
+    status: str = "pending"  # "pending", "approved", "rejected"
+    receipt_photo_id: Optional[str] = None
+    receipt_caption: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    processed_at: Optional[str] = None
+    processed_by: Optional[str] = None
+    admin_note: Optional[str] = None
 
 class BotActivity(BaseModel):
     model_config = ConfigDict(extra="ignore")

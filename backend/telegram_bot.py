@@ -1,11 +1,12 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import os
 import logging
 from typing import Dict
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 from cache_manager import MatchCacheManager
+from premium_helper import PremiumHelper
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,10 @@ class BettingBot:
         self.analyzer = analyzer
         self.coupon_gen = coupon_gen
         self.cache_manager = MatchCacheManager(db, scraper)
+        self.premium_helper = PremiumHelper()
+        self.admin_id = os.environ.get('ADMIN_TELEGRAM_ID', '7936836513')  # SENİN TELEGRAM ID'N
         self.app = None
+        self.waiting_for_receipt = {}  # Ödeme dekontu bekleyen kullanıcılar
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -509,3 +513,269 @@ Lütfen risk seviyesini seçin:
             await self.app.updater.stop()
             await self.app.stop()
             await self.app.shutdown()
+
+    async def premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Premium bilgileri göster"""
+        user = update.effective_user
+        
+        # Kullanıcı bilgisini al
+        user_data = await self.db.users.find_one({"telegram_id": str(user.id)})
+        
+        if user_data and self.premium_helper.is_premium_active(user_data):
+            # Zaten premium
+            remaining = self.premium_helper.get_remaining_days(user_data)
+            message = f"""
+💎 **Premium Üyeliğiniz Aktif!**
+
+✨ Aktif Özellikler:
+• Sınırsız kupon
+• Tüm seviyeler
+• Detaylı AI analizi
+
+⏰ Kalan Süre: **{remaining} gün**
+📅 Bitiş: {user_data['premium_until'][:10]}
+
+Premium süreniz bittiğinde yenileyebilirsiniz.
+"""
+        else:
+            # Premium değil
+            message = self.premium_helper.format_premium_info()
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
+    async def odemeyaptim_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ödeme yapıldı bildirimi"""
+        user = update.effective_user
+        
+        # Kullanıcıyı dekont bekleme moduna al
+        self.waiting_for_receipt[str(user.id)] = {
+            "waiting": True,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        message = """
+📸 **Ödeme Dekontunu Gönderin**
+
+Lütfen ödeme dekontunuzun fotoğrafını buraya gönderin.
+
+**Dekontta görünmeli:**
+• Tutar: ₺99
+• Alıcı: {name}
+• Tarih
+
+Dekontu bir sonraki mesaj olarak gönderin 👇
+""".format(name=self.premium_helper.PAYMENT_INFO['papara_name'])
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
+    async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Fotoğraf (dekont) alındığında"""
+        user = update.effective_user
+        
+        # Bu kullanıcı dekont bekliyor mu?
+        if str(user.id) not in self.waiting_for_receipt:
+            return
+        
+        # Dekontu kaydet
+        photo = update.message.photo[-1]  # En yüksek çözünürlük
+        caption = update.message.caption or ""
+        
+        payment_id = f"PAY{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+        
+        # Payment kaydı oluştur
+        payment = {
+            "id": payment_id,
+            "user_telegram_id": str(user.id),
+            "username": user.username,
+            "first_name": user.first_name,
+            "amount": 99,
+            "payment_type": "premium_monthly",
+            "status": "pending",
+            "receipt_photo_id": photo.file_id,
+            "receipt_caption": caption,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        await self.db.payments.insert_one(payment)
+        
+        # Bekleme modundan çıkar
+        del self.waiting_for_receipt[str(user.id)]
+        
+        # Kullanıcıya bilgi
+        await update.message.reply_text(
+            f"""
+✅ **Ödemeniz Alındı!**
+
+🔄 İşlem durumu: Onay bekliyor
+⏱️ Tahmini süre: 2-24 saat
+
+Onaylandığında bildirim alacaksınız.
+
+Referans No: #{payment_id}
+            """,
+            parse_mode="Markdown"
+        )
+        
+        # Admin'e bildirim gönder
+        try:
+            admin_message = f"""
+🔔 **Yeni Ödeme!**
+
+👤 Kullanıcı: @{user.username or 'N/A'} ({user.first_name})
+💰 Tutar: ₺99
+📋 Ref: #{payment_id}
+
+/admin_payments - Bekleyen ödemeler
+            """
+            await context.bot.send_photo(
+                chat_id=self.admin_id,
+                photo=photo.file_id,
+                caption=admin_message
+            )
+        except Exception as e:
+            logger.error(f"Admin bildirimi gönderilemedi: {str(e)}")
+    
+    async def admin_payments_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin: Bekleyen ödemeler"""
+        user = update.effective_user
+        
+        if str(user.id) != self.admin_id:
+            await update.message.reply_text("❌ Bu komutu kullanma yetkiniz yok.")
+            return
+        
+        # Bekleyen ödemeleri getir
+        payments = await self.db.payments.find({"status": "pending"}).sort("created_at", -1).to_list(10)
+        
+        if not payments:
+            await update.message.reply_text("✅ Bekleyen ödeme yok!")
+            return
+        
+        message = f"📋 **Bekleyen Ödemeler** ({len(payments)})\n\n"
+        
+        for i, payment in enumerate(payments, 1):
+            created = payment['created_at'][:16].replace('T', ' ')
+            message += f"""{i}️⃣ **Ref:** #{payment['id']}
+👤 @{payment.get('username', 'N/A')}
+💰 ₺{payment['amount']}
+📅 {created}
+
+Onayla: /approve_{payment['id']}
+Reddet: /reject_{payment['id']}
+
+"""
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
+    async def handle_admin_action(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin onay/red işlemleri"""
+        user = update.effective_user
+        
+        if str(user.id) != self.admin_id:
+            return
+        
+        command = update.message.text
+        
+        if command.startswith('/approve_'):
+            payment_id = command.replace('/approve_', '')
+            await self._approve_payment(payment_id, update, context)
+        elif command.startswith('/reject_'):
+            payment_id = command.replace('/reject_', '')
+            await self._reject_payment(payment_id, update, context)
+    
+    async def _approve_payment(self, payment_id: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ödemeyi onayla ve premium ver"""
+        # Payment'ı bul
+        payment = await self.db.payments.find_one({"id": payment_id})
+        
+        if not payment:
+            await update.message.reply_text("❌ Ödeme bulunamadı!")
+            return
+        
+        if payment['status'] != 'pending':
+            await update.message.reply_text("❌ Bu ödeme zaten işlendi!")
+            return
+        
+        # Kullanıcıya premium ver
+        user_telegram_id = payment['user_telegram_id']
+        premium_data = self.premium_helper.activate_premium(user_telegram_id, "monthly")
+        
+        await self.db.users.update_one(
+            {"telegram_id": user_telegram_id},
+            {"$set": premium_data}
+        )
+        
+        # Payment'ı onayla
+        await self.db.payments.update_one(
+            {"id": payment_id},
+            {"$set": {
+                "status": "approved",
+                "processed_at": datetime.utcnow().isoformat(),
+                "processed_by": str(update.effective_user.id)
+            }}
+        )
+        
+        # Admin'e bilgi
+        await update.message.reply_text(
+            f"""
+✅ **Ödeme Onaylandı!**
+
+@{payment.get('username', 'N/A')} premium yapıldı!
+Süre: 30 gün
+
+Kullanıcıya bildirim gönderildi.
+            """,
+            parse_mode="Markdown"
+        )
+        
+        # Kullanıcıya bildirim
+        try:
+            user_message = """
+🎉 **Premium Üyeliğiniz Aktif!**
+
+Premium özelliklere şimdi erişebilirsiniz:
+• ✨ Sınırsız kupon
+• ✨ Zor seviye aktif
+• ✨ Detaylı AI analizi
+
+⏰ Süre: 30 gün
+
+/premium - Durumunuzu görün
+/kupon - Hemen kupon oluşturun!
+            """
+            await context.bot.send_message(
+                chat_id=user_telegram_id,
+                text=user_message,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Kullanıcıya bildirim gönderilemedi: {str(e)}")
+    
+    async def _reject_payment(self, payment_id: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ödemeyi reddet"""
+        payment = await self.db.payments.find_one({"id": payment_id})
+        
+        if not payment:
+            await update.message.reply_text("❌ Ödeme bulunamadı!")
+            return
+        
+        # Payment'ı reddet
+        await self.db.payments.update_one(
+            {"id": payment_id},
+            {"$set": {
+                "status": "rejected",
+                "processed_at": datetime.utcnow().isoformat(),
+                "processed_by": str(update.effective_user.id)
+            }}
+        )
+        
+        await update.message.reply_text(
+            f"""
+❌ **Ödeme Reddedildi**
+
+Ref: #{payment_id}
+
+Kullanıcıya bildirim gönder:
+/notify_{payment['user_telegram_id']}_Ödemeniz reddedildi
+            """,
+            parse_mode="Markdown"
+        )
