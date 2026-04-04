@@ -92,15 +92,9 @@ Hemen baslamak icin /kupon komutunu kullanin!
         is_premium = user_data and self.premium_helper.is_premium_active(user_data)
         is_admin = user_data and user_data.get('is_admin', False)
         
-        # Günlük kullanım hesapla
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        daily_count = 0
-        if user_data:
-            if user_data.get('last_coupon_date') == today:
-                daily_count = user_data.get('daily_coupon_count', 0)
-        
         unlimited = is_premium or is_admin
-        remaining = 999 if unlimited else max(0, self.premium_helper.FREE_DAILY_LIMIT - daily_count)
+        total_used = user_data.get('total_coupons', 0) if user_data else 0
+        remaining = 999 if unlimited else max(0, self.premium_helper.FREE_TOTAL_LIMIT - total_used)
         
         # Aylık başarı oranlarını hesapla
         success_rates = await self._calculate_monthly_success_rates()
@@ -129,7 +123,7 @@ Hemen baslamak icin /kupon komutunu kullanin!
         if unlimited:
             status_text = "Admin - Sinirsiz kupon" if is_admin else "Premium - Sinirsiz kupon"
         else:
-            status_text = f"Ucretsiz - Kalan hak: {remaining}/{self.premium_helper.FREE_DAILY_LIMIT}"
+            status_text = f"Ucretsiz - Kalan hak: {remaining}/{self.premium_helper.FREE_TOTAL_LIMIT}"
         
         message = f"""
 **Kupon Olustur**
@@ -445,22 +439,12 @@ Not: Tum tahminler yapay zeka destekli analizlere dayanir. Bahis oynarken dikkat
             # 4. Kuponu kaydet
             await self.db.coupons.insert_one(coupon)
             
-            # 5. Günlük kupon sayısını güncelle
-            today = datetime.utcnow().strftime("%Y-%m-%d")
-            user_data = await self.db.users.find_one({"telegram_id": user_id})
-            current_date = user_data.get('last_coupon_date', '') if user_data else ''
-            
-            if current_date == today:
-                await self.db.users.update_one(
-                    {"telegram_id": user_id},
-                    {"$inc": {"daily_coupon_count": 1, "total_coupons": 1}}
-                )
-            else:
-                await self.db.users.update_one(
-                    {"telegram_id": user_id},
-                    {"$set": {"daily_coupon_count": 1, "last_coupon_date": today}, "$inc": {"total_coupons": 1}},
-                    upsert=True
-                )
+            # 5. Toplam kupon sayısını güncelle
+            await self.db.users.update_one(
+                {"telegram_id": user_id},
+                {"$inc": {"total_coupons": 1}},
+                upsert=True
+            )
             
             # 6. Log activity
             await self.db.bot_activities.insert_one({
@@ -765,6 +749,55 @@ Senin ID: `{self.admin_id}`
             logger.error(f"Error in maclar command: {str(e)}")
             await update.message.reply_text("Maclar yuklenirken hata olustu.")
     
+    async def istatistik_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Kullanici istatistikleri"""
+        user = update.effective_user
+        user_data = await self.db.users.find_one({"telegram_id": str(user.id)})
+        
+        if not user_data:
+            await update.message.reply_text("Henuz kaydiniz yok. /start ile baslayabilirsiniz.")
+            return
+        
+        total = user_data.get('total_coupons', 0)
+        is_premium = self.premium_helper.is_premium_active(user_data)
+        
+        # Kullanicinin kuponlari
+        won = await self.db.coupons.count_documents({"user_telegram_id": str(user.id), "status": "won"})
+        lost = await self.db.coupons.count_documents({"user_telegram_id": str(user.id), "status": "lost"})
+        pending = await self.db.coupons.count_documents({"user_telegram_id": str(user.id), "status": "pending"})
+        resolved = won + lost
+        win_rate = round((won / resolved * 100) if resolved > 0 else 0)
+        
+        # Risk dagilimi
+        banko = await self.db.coupons.count_documents({"user_telegram_id": str(user.id), "risk_level": "banko"})
+        orta = await self.db.coupons.count_documents({"user_telegram_id": str(user.id), "risk_level": "orta"})
+        zor = await self.db.coupons.count_documents({"user_telegram_id": str(user.id), "risk_level": "zor"})
+        
+        plan = "Premium" if is_premium else "Ucretsiz"
+        remaining_text = ""
+        if is_premium:
+            remaining = self.premium_helper.get_remaining_days(user_data)
+            remaining_text = f"\nPremium kalan: {remaining} gun"
+        elif not user_data.get('is_admin'):
+            free_left = max(0, self.premium_helper.FREE_TOTAL_LIMIT - total)
+            remaining_text = f"\nKalan ucretsiz hak: {free_left}"
+        
+        message = f"""**Istatistikleriniz**
+
+Plan: {plan}{remaining_text}
+Toplam Kupon: {total}
+
+**Sonuclar:**
+Kazanan: {won}
+Kaybeden: {lost}
+Bekleyen: {pending}
+Basari: %{win_rate}
+
+**Risk Dagilimi:**
+Banko: {banko} | Orta: {orta} | Zor: {zor}
+"""
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
     def setup_handlers(self):
         """
         Setup bot handlers
@@ -777,6 +810,7 @@ Senin ID: `{self.admin_id}`
         self.app.add_handler(CommandHandler("kuponlarim", self.my_coupons_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("maclar", self.maclar_command))
+        self.app.add_handler(CommandHandler("istatistik", self.istatistik_command))
         
         # Premium komutlar
         self.app.add_handler(CommandHandler("premium", self.premium_command))

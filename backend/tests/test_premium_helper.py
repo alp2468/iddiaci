@@ -1,6 +1,7 @@
 """
 Premium Helper Unit Tests
-Tests for: FREE_DAILY_LIMIT, can_create_coupon, can_use_risk_level, is_premium_active, activate_premium
+Tests for: FREE_TOTAL_LIMIT (3 TOTAL coupons), can_create_coupon, can_use_risk_level, is_premium_active, activate_premium
+Updated: Now tests TOTAL limit (not daily) - users get 3 TOTAL coupons then must upgrade
 """
 import pytest
 import sys
@@ -14,17 +15,12 @@ from premium_helper import PremiumHelper
 
 
 class TestPremiumHelperConstants:
-    """Test premium helper constants"""
+    """Test premium helper constants - FREE_TOTAL_LIMIT should be 3 (TOTAL not daily)"""
     
-    def test_free_daily_limit_is_3(self):
-        """FREE_DAILY_LIMIT should be 3"""
-        assert PremiumHelper.FREE_DAILY_LIMIT == 3, f"Expected FREE_DAILY_LIMIT=3, got {PremiumHelper.FREE_DAILY_LIMIT}"
-        print(f"✅ FREE_DAILY_LIMIT = {PremiumHelper.FREE_DAILY_LIMIT}")
-    
-    def test_premium_daily_limit_is_unlimited(self):
-        """PREMIUM_DAILY_LIMIT should be very high (unlimited)"""
-        assert PremiumHelper.PREMIUM_DAILY_LIMIT >= 999999, "Premium should have unlimited coupons"
-        print(f"✅ PREMIUM_DAILY_LIMIT = {PremiumHelper.PREMIUM_DAILY_LIMIT}")
+    def test_free_total_limit_is_3(self):
+        """FREE_TOTAL_LIMIT should be 3 (TOTAL coupons, not daily)"""
+        assert PremiumHelper.FREE_TOTAL_LIMIT == 3, f"Expected FREE_TOTAL_LIMIT=3, got {PremiumHelper.FREE_TOTAL_LIMIT}"
+        print(f"✅ FREE_TOTAL_LIMIT = {PremiumHelper.FREE_TOTAL_LIMIT}")
     
     def test_prices_exist(self):
         """Prices should be defined"""
@@ -35,48 +31,67 @@ class TestPremiumHelperConstants:
 
 
 class TestCanCreateCoupon:
-    """Test can_create_coupon function"""
+    """Test can_create_coupon function - checks TOTAL coupons (not daily)"""
     
     def test_can_create_coupon_new_user(self):
         """New user with no coupons should be able to create"""
-        user = {"telegram_id": "123", "daily_coupon_count": 0, "last_coupon_date": ""}
+        user = {"telegram_id": "123", "total_coupons": 0}
         can_create, msg = PremiumHelper.can_create_coupon(user)
         
         assert can_create is True, f"New user should be able to create coupon: {msg}"
         print(f"✅ New user can create coupon")
     
     def test_can_create_coupon_under_limit(self):
-        """User with 2 coupons today should be able to create"""
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        user = {"telegram_id": "123", "daily_coupon_count": 2, "last_coupon_date": today}
+        """User with 2 total coupons should be able to create"""
+        user = {"telegram_id": "123", "total_coupons": 2}
         can_create, msg = PremiumHelper.can_create_coupon(user)
         
         assert can_create is True, f"User under limit should be able to create: {msg}"
-        print(f"✅ User with 2 coupons can create more")
+        print(f"✅ User with 2 total coupons can create more")
     
-    def test_can_create_coupon_blocks_after_3_free(self):
-        """User with 3 coupons today should be blocked (free user)"""
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+    def test_can_create_coupon_blocks_after_3_total_free(self):
+        """User with 3 TOTAL coupons should be blocked (free user)"""
         user = {
             "telegram_id": "123", 
-            "daily_coupon_count": 3, 
-            "last_coupon_date": today,
+            "total_coupons": 3,
             "is_premium": False
         }
         can_create, msg = PremiumHelper.can_create_coupon(user)
         
-        assert can_create is False, "Free user at limit should be blocked"
-        assert "limit" in msg.lower() or "doldu" in msg.lower(), "Message should mention limit"
-        print(f"✅ Free user blocked after 3 coupons: {msg[:50]}...")
+        assert can_create is False, "Free user at TOTAL limit should be blocked"
+        assert "3/3" in msg or "bitti" in msg.lower(), f"Message should mention limit reached: {msg}"
+        print(f"✅ Free user blocked after 3 TOTAL coupons: {msg[:60]}...")
+    
+    def test_can_create_coupon_blocks_after_exceeding_limit(self):
+        """User with more than 3 TOTAL coupons should be blocked"""
+        user = {
+            "telegram_id": "123", 
+            "total_coupons": 5,
+            "is_premium": False
+        }
+        can_create, msg = PremiumHelper.can_create_coupon(user)
+        
+        assert can_create is False, "Free user exceeding TOTAL limit should be blocked"
+        print(f"✅ Free user blocked with 5 total coupons")
+    
+    def test_can_create_coupon_admin_unlimited(self):
+        """Admin user should have unlimited coupons regardless of count"""
+        user = {
+            "telegram_id": "123", 
+            "total_coupons": 100,
+            "is_admin": True
+        }
+        can_create, msg = PremiumHelper.can_create_coupon(user)
+        
+        assert can_create is True, f"Admin should have unlimited: {msg}"
+        print(f"✅ Admin user can create unlimited coupons")
     
     def test_can_create_coupon_premium_unlimited(self):
         """Premium user should have unlimited coupons"""
-        today = datetime.utcnow().strftime("%Y-%m-%d")
         future = (datetime.utcnow() + timedelta(days=30)).isoformat()
         user = {
             "telegram_id": "123", 
-            "daily_coupon_count": 100, 
-            "last_coupon_date": today,
+            "total_coupons": 100,
             "is_premium": True,
             "premium_until": future
         }
@@ -84,15 +99,6 @@ class TestCanCreateCoupon:
         
         assert can_create is True, f"Premium user should have unlimited: {msg}"
         print(f"✅ Premium user can create unlimited coupons")
-    
-    def test_can_create_coupon_new_day_resets(self):
-        """New day should reset counter"""
-        yesterday = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
-        user = {"telegram_id": "123", "daily_coupon_count": 10, "last_coupon_date": yesterday}
-        can_create, msg = PremiumHelper.can_create_coupon(user)
-        
-        assert can_create is True, f"New day should reset counter: {msg}"
-        print(f"✅ New day resets coupon counter")
 
 
 class TestCanUseRiskLevel:
@@ -194,9 +200,11 @@ class TestActivatePremium:
         assert "premium_since" in result, "Should contain premium_since"
         assert "premium_until" in result, "Should contain premium_until"
         assert "premium_type" in result, "Should contain premium_type"
+        assert "expiry_reminder_sent" in result, "Should contain expiry_reminder_sent"
         
         assert result["is_premium"] is True, "is_premium should be True"
         assert result["premium_type"] == "monthly", "premium_type should be monthly"
+        assert result["expiry_reminder_sent"] is False, "expiry_reminder_sent should be False"
         
         # Verify premium_until is ~30 days from now
         until = datetime.fromisoformat(result["premium_until"])
@@ -212,6 +220,7 @@ class TestActivatePremium:
         
         assert result["is_premium"] is True, "is_premium should be True"
         assert result["premium_type"] == "yearly", "premium_type should be yearly"
+        assert result["expiry_reminder_sent"] is False, "expiry_reminder_sent should be False"
         
         # Verify premium_until is ~365 days from now
         until = datetime.fromisoformat(result["premium_until"])
@@ -220,31 +229,17 @@ class TestActivatePremium:
         assert 364 <= diff <= 366, f"Yearly premium should be ~365 days, got {diff}"
         
         print(f"✅ activate_premium yearly: {result}")
-
-
-class TestGetDailyLimit:
-    """Test get_daily_limit function"""
     
-    def test_get_daily_limit_free_user(self):
-        """Free user should get FREE_DAILY_LIMIT"""
-        user = {"telegram_id": "123", "is_premium": False}
-        limit = PremiumHelper.get_daily_limit(user)
+    def test_activate_premium_30_day_duration(self):
+        """Monthly premium should be exactly 30 days"""
+        result = PremiumHelper.activate_premium("123", "monthly")
         
-        assert limit == PremiumHelper.FREE_DAILY_LIMIT, f"Expected {PremiumHelper.FREE_DAILY_LIMIT}, got {limit}"
-        print(f"✅ Free user daily limit: {limit}")
-    
-    def test_get_daily_limit_premium_user(self):
-        """Premium user should get PREMIUM_DAILY_LIMIT"""
-        future = (datetime.utcnow() + timedelta(days=30)).isoformat()
-        user = {
-            "telegram_id": "123", 
-            "is_premium": True,
-            "premium_until": future
-        }
-        limit = PremiumHelper.get_daily_limit(user)
+        since = datetime.fromisoformat(result["premium_since"])
+        until = datetime.fromisoformat(result["premium_until"])
+        diff = (until - since).days
         
-        assert limit == PremiumHelper.PREMIUM_DAILY_LIMIT, f"Expected {PremiumHelper.PREMIUM_DAILY_LIMIT}, got {limit}"
-        print(f"✅ Premium user daily limit: {limit}")
+        assert diff == 30, f"Monthly premium should be 30 days, got {diff}"
+        print(f"✅ Monthly premium is 30 days")
 
 
 class TestGetRemainingDays:

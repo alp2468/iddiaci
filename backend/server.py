@@ -261,6 +261,137 @@ async def get_success_rates():
         logger.error(f"Error getting success rates: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@api_router.get("/admin/dashboard")
+async def admin_dashboard():
+    """Admin dashboard verileri"""
+    try:
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        week_ago = (now - timedelta(days=7)).isoformat()
+        today = now.strftime("%Y-%m-%d")
+
+        total_users = await db.users.count_documents({})
+        premium_users = await db.users.count_documents({"is_premium": True})
+        total_coupons = await db.coupons.count_documents({})
+        pending_payments = await db.payments.count_documents({"status": "pending"})
+        approved_payments = await db.payments.count_documents({"status": "approved"})
+        weekly_coupons = await db.coupons.count_documents({"created_at": {"$gte": week_ago}})
+        today_coupons = await db.coupons.count_documents({"created_at": {"$regex": f"^{today}"}})
+        won = await db.coupons.count_documents({"status": "won"})
+        lost = await db.coupons.count_documents({"status": "lost"})
+        resolved = won + lost
+        win_rate = round((won / resolved * 100) if resolved > 0 else 0)
+        revenue = approved_payments * 99
+
+        return {
+            "total_users": total_users,
+            "premium_users": premium_users,
+            "total_coupons": total_coupons,
+            "today_coupons": today_coupons,
+            "weekly_coupons": weekly_coupons,
+            "pending_payments": pending_payments,
+            "approved_payments": approved_payments,
+            "won": won,
+            "lost": lost,
+            "win_rate": win_rate,
+            "revenue": revenue
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/admin/users")
+async def admin_users():
+    """Tum kullanicilari getir"""
+    try:
+        users = await db.users.find({}, {"_id": 0}).sort("last_interaction", -1).to_list(200)
+        return {"users": users, "count": len(users)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/admin/payments")
+async def admin_payments():
+    """Tum odemeleri getir"""
+    try:
+        payments = await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+        return {"payments": payments, "count": len(payments)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PremiumAction(BaseModel):
+    telegram_id: str
+    action: str  # "activate" or "deactivate"
+
+
+@api_router.post("/admin/premium")
+async def admin_premium_action(data: PremiumAction):
+    """Premium aktif/deaktif et"""
+    try:
+        from premium_helper import PremiumHelper
+        ph = PremiumHelper()
+
+        user = await db.users.find_one({"telegram_id": data.telegram_id})
+        if not user:
+            raise HTTPException(status_code=404, detail="Kullanici bulunamadi")
+
+        if data.action == "activate":
+            premium_data = ph.activate_premium(data.telegram_id, "monthly")
+        else:
+            premium_data = ph.deactivate_premium()
+
+        await db.users.update_one(
+            {"telegram_id": data.telegram_id},
+            {"$set": premium_data}
+        )
+        return {"status": "success", "action": data.action, "telegram_id": data.telegram_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PaymentAction(BaseModel):
+    payment_id: str
+    action: str  # "approve" or "reject"
+
+
+@api_router.post("/admin/payment-action")
+async def admin_payment_action(data: PaymentAction):
+    """Odeme onayla/reddet"""
+    try:
+        from datetime import datetime
+        from premium_helper import PremiumHelper
+
+        payment = await db.payments.find_one({"id": data.payment_id})
+        if not payment:
+            raise HTTPException(status_code=404, detail="Odeme bulunamadi")
+
+        if data.action == "approve":
+            ph = PremiumHelper()
+            premium_data = ph.activate_premium(payment['user_telegram_id'], "monthly")
+            await db.users.update_one(
+                {"telegram_id": payment['user_telegram_id']},
+                {"$set": premium_data}
+            )
+            await db.payments.update_one(
+                {"id": data.payment_id},
+                {"$set": {"status": "approved", "processed_at": datetime.utcnow().isoformat()}}
+            )
+        else:
+            await db.payments.update_one(
+                {"id": data.payment_id},
+                {"$set": {"status": "rejected", "processed_at": datetime.utcnow().isoformat()}}
+            )
+
+        return {"status": "success", "action": data.action}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Include router
 app.include_router(api_router)
 

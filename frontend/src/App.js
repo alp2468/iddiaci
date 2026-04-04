@@ -1,408 +1,290 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
 import axios from "axios";
-import { 
-  ActivityIcon as Activity, 
-  TrendUp, 
-  UsersIcon as Users, 
-  FileTextIcon as FileText, 
-  TargetIcon as Target, 
-  ChartBarIcon as BarChart3,
-  ArrowClockwise,
-  BrainIcon as Brain,
-  TrophyIcon as Trophy,
-  ClockIcon as Clock
-} from "@phosphor-icons/react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const Dashboard = () => {
-  const [stats, setStats] = useState(null);
-  const [matches, setMatches] = useState([]);
-  const [coupons, setCoupons] = useState([]);
-  const [predictions, setPredictions] = useState([]);
+/* ========== ADMIN PANEL ========== */
+const AdminPanel = () => {
+  const [dashboard, setDashboard] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [tab, setTab] = useState("overview");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
+  const fetchAll = useCallback(async () => {
+    try {
+      const [dashRes, usersRes, paymentsRes] = await Promise.all([
+        axios.get(`${API}/admin/dashboard`),
+        axios.get(`${API}/admin/users`),
+        axios.get(`${API}/admin/payments`),
+      ]);
+      setDashboard(dashRes.data);
+      setUsers(usersRes.data.users || []);
+      setPayments(paymentsRes.data.payments || []);
+    } catch (e) {
+      console.error("Admin fetch error:", e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const fetchData = async () => {
+  useEffect(() => {
+    fetchAll();
+    const iv = setInterval(fetchAll, 15000);
+    return () => clearInterval(iv);
+  }, [fetchAll]);
+
+  const handlePremium = async (telegramId, action) => {
     try {
-      const [statsRes, matchesRes, couponsRes, predictionsRes] = await Promise.all([
-        axios.get(`${API}/stats`),
-        axios.get(`${API}/matches/today`),
-        axios.get(`${API}/coupons/recent`),
-        axios.get(`${API}/predictions/recent`)
-      ]);
-      
-      setStats(statsRes.data);
-      setMatches(matchesRes.data.matches || []);
-      setCoupons(couponsRes.data.coupons || []);
-      setPredictions(predictionsRes.data.predictions || []);
-      setLoading(false);
+      await axios.post(`${API}/admin/premium`, { telegram_id: telegramId, action });
+      await fetchAll();
     } catch (e) {
-      console.error("Error fetching data:", e);
-      setLoading(false);
+      console.error(e);
     }
   };
 
-  const triggerScrape = async () => {
+  const handlePayment = async (paymentId, action) => {
     try {
-      await axios.post(`${API}/scrape/trigger`);
-      await fetchData();
-      alert("Maçlar başarıyla yüklendi!");
+      await axios.post(`${API}/admin/payment-action`, { payment_id: paymentId, action });
+      await fetchAll();
     } catch (e) {
-      console.error("Error triggering scrape:", e);
-      alert("Hata oluştu!");
+      console.error(e);
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#0A0A0A' }}>
-        <div className="text-center">
-          <ArrowClockwise size={48} className="animate-spin mx-auto mb-4" style={{ color: '#007AFF' }} />
-          <p className="text-lg" style={{ color: '#A1A1AA' }}>Yükleniyor...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#0A0A0A" }}>
+        <p style={{ color: "#A1A1AA" }}>Yukleniyor...</p>
       </div>
     );
   }
 
+  const pendingPayments = payments.filter((p) => p.status === "pending");
+
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#0A0A0A', padding: '24px' }}>
-      {/* Header */}
-      <div 
-        className="mb-8 p-8 rounded-xl border"
-        style={{
-          backgroundColor: '#141414',
-          borderColor: 'rgba(255,255,255,0.1)',
-          borderWidth: '1px'
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 
-              className="text-5xl mb-2"
-              style={{ 
-                fontFamily: 'Bebas Neue',
-                letterSpacing: '-0.05em',
-                color: '#FFFFFF'
-              }}
-              data-testid="dashboard-title"
-            >
-              🎯 BETTING BOT DASHBOARD
-            </h1>
-            <p className="text-base" style={{ color: '#A1A1AA' }}>Yapay zeka destekli futbol analiz sistemi</p>
-          </div>
+    <div className="min-h-screen" style={{ backgroundColor: "#0A0A0A", color: "#fff" }}>
+      {/* Tabs */}
+      <div className="flex gap-1 p-4 border-b" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
+        {["overview", "users", "payments"].map((t) => (
           <button
-            onClick={triggerScrape}
-            className="px-6 py-3 rounded-lg font-semibold flex items-center gap-2"
+            key={t}
+            onClick={() => setTab(t)}
+            data-testid={`admin-tab-${t}`}
+            className="px-5 py-2 rounded-lg text-sm font-semibold transition-all"
             style={{
-              backgroundColor: '#007AFF',
-              color: '#FFFFFF',
-              border: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease'
+              backgroundColor: tab === t ? "#007AFF" : "transparent",
+              color: tab === t ? "#fff" : "#A1A1AA",
+              border: tab === t ? "none" : "1px solid rgba(255,255,255,0.1)",
+              cursor: "pointer",
             }}
-            onMouseEnter={(e) => e.target.style.backgroundColor = '#0062CC'}
-            onMouseLeave={(e) => e.target.style.backgroundColor = '#007AFF'}
-            data-testid="trigger-scrape-button"
           >
-            <ArrowClockwise size={20} />
-            Maçları Yükle
+            {t === "overview" ? "Genel Bakis" : t === "users" ? `Kullanicilar (${users.length})` : `Odemeler (${pendingPayments.length} bekleyen)`}
           </button>
-        </div>
+        ))}
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard
-          icon={<Users size={32} weight="bold" />}
-          title="Toplam Kullanıcı"
-          value={stats?.total_users || 0}
-          color="#007AFF"
-          testId="total-users-stat"
-        />
-        <StatCard
-          icon={<FileText size={32} weight="bold" />}
-          title="Oluşturulan Kupon"
-          value={stats?.total_coupons || 0}
-          color="#00FF66"
-          testId="total-coupons-stat"
-        />
-        <StatCard
-          icon={<Target size={32} weight="bold" />}
-          title="Analiz Edilen Maç"
-          value={stats?.total_matches || 0}
-          color="#FF3B30"
-          testId="total-matches-stat"
-        />
-        <StatCard
-          icon={<Brain size={32} weight="bold" />}
-          title="AI Tahmini"
-          value={stats?.total_predictions || 0}
-          color="#FFCC00"
-          testId="total-predictions-stat"
-        />
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Today's Matches */}
-        <div className="lg:col-span-2">
-          <ContentCard title="Bugünkü Maçlar" icon={<Activity size={24} weight="bold" />}>
-            {matches.length === 0 ? (
-              <div className="text-center py-8" style={{ color: '#52525B' }}>
-                <Trophy size={48} className="mx-auto mb-4" />
-                <p>Bugün için maç bulunamadı.</p>
-                <button
-                  onClick={triggerScrape}
-                  className="mt-4 px-4 py-2 rounded-lg"
-                  style={{
-                    backgroundColor: '#141414',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: '#007AFF',
-                    cursor: 'pointer'
-                  }}
-                  data-testid="load-matches-button"
-                >
-                  Maçları Yükle
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {matches.slice(0, 10).map((match, idx) => (
-                  <div
-                    key={idx}
-                    className="match-row p-4 rounded-lg border"
-                    style={{
-                      backgroundColor: '#0A0A0A',
-                      borderColor: 'rgba(255,255,255,0.1)',
-                      borderWidth: '1px'
-                    }}
-                    data-testid={`match-item-${idx}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="text-xs mb-1" style={{ color: '#52525B' }}>
-                          {match.league}
-                        </div>
-                        <div className="font-semibold" style={{ color: '#FFFFFF' }}>
-                          {match.home_team} vs {match.away_team}
-                        </div>
-                      </div>
-                      <div className="flex gap-3 items-center">
-                        <div className="text-center">
-                          <div className="text-xs" style={{ color: '#52525B' }}>1</div>
-                          <div className="font-bold" style={{ color: '#00FF66' }}>{match.odds_1}</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-xs" style={{ color: '#52525B' }}>X</div>
-                          <div className="font-bold" style={{ color: '#007AFF' }}>{match.odds_x}</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-xs" style={{ color: '#52525B' }}>2</div>
-                          <div className="font-bold" style={{ color: '#FF3B30' }}>{match.odds_2}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ContentCard>
-        </div>
-
-        {/* Recent Coupons */}
-        <div>
-          <ContentCard title="Son Kuponlar" icon={<FileText size={24} weight="bold" />}>
-            {coupons.length === 0 ? (
-              <div className="text-center py-8" style={{ color: '#52525B' }}>
-                <FileText size={48} className="mx-auto mb-4" />
-                <p>Henüz kupon oluşturulmamış.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {coupons.slice(0, 8).map((coupon, idx) => (
-                  <div
-                    key={idx}
-                    className="p-4 rounded-lg border"
-                    style={{
-                      backgroundColor: '#0A0A0A',
-                      borderColor: 'rgba(255,255,255,0.1)',
-                      borderWidth: '1px'
-                    }}
-                    data-testid={`coupon-item-${idx}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className={`risk-badge risk-${coupon.risk_level}`}>
-                        {coupon.risk_level.toUpperCase()}
-                      </span>
-                      <span className="font-bold text-lg" style={{ color: '#00FF66' }}>
-                        {coupon.total_odds}x
-                      </span>
-                    </div>
-                    <div className="text-sm" style={{ color: '#A1A1AA' }}>
-                      {coupon.match_count} maç
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ContentCard>
-        </div>
-      </div>
-
-      {/* AI Predictions */}
-      <div className="mt-6">
-        <ContentCard title="AI Analiz Logları" icon={<Brain size={24} weight="bold" />}>
-          {predictions.length === 0 ? (
-            <div className="text-center py-8" style={{ color: '#52525B' }}>
-              <Brain size={48} className="mx-auto mb-4" />
-              <p>Henüz AI tahmini yok.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {predictions.slice(0, 6).map((pred, idx) => (
-                <div
-                  key={idx}
-                  className="p-4 rounded-lg border"
-                  style={{
-                    backgroundColor: '#0A0A0A',
-                    borderColor: 'rgba(255,255,255,0.1)',
-                    borderWidth: '1px'
-                  }}
-                  data-testid={`prediction-item-${idx}`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: '#141414', color: '#007AFF' }}>
-                      {pred.ai_model}
-                    </span>
-                    <span className="font-bold" style={{ color: '#00FF66' }}>
-                      {pred.confidence}%
-                    </span>
-                  </div>
-                  <div className="text-sm mb-1" style={{ color: '#FFFFFF' }}>
-                    Tahmin: <span className="font-bold">{pred.recommended_bet}</span> @ {pred.predicted_odds}
-                  </div>
-                  <div className="text-xs" style={{ color: '#52525B' }}>
-                    {pred.ai_analysis?.substring(0, 100)}...
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </ContentCard>
-      </div>
-
-      {/* Recent Activities */}
-      <div className="mt-6">
-        <ContentCard title="Son Aktiviteler" icon={<Clock size={24} weight="bold" />}>
-          {stats?.recent_activities?.length === 0 ? (
-            <div className="text-center py-8" style={{ color: '#52525B' }}>
-              <Activity size={48} className="mx-auto mb-4" />
-              <p>Henüz aktivite yok.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {stats?.recent_activities?.slice(0, 5).map((activity, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 rounded-lg border flex items-center justify-between"
-                  style={{
-                    backgroundColor: '#0A0A0A',
-                    borderColor: 'rgba(255,255,255,0.1)',
-                    borderWidth: '1px'
-                  }}
-                  data-testid={`activity-item-${idx}`}
-                >
-                  <div>
-                    <span className="font-semibold" style={{ color: '#FFFFFF' }}>
-                      {activity.activity_type}
-                    </span>
-                    <span className="text-sm ml-2" style={{ color: '#52525B' }}>
-                      User: {activity.user_telegram_id}
-                    </span>
-                  </div>
-                  <div className="text-xs" style={{ color: '#52525B' }}>
-                    {new Date(activity.timestamp).toLocaleString('tr-TR')}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </ContentCard>
+      <div className="p-6">
+        {tab === "overview" && dashboard && <OverviewTab data={dashboard} />}
+        {tab === "users" && <UsersTab users={users} onPremium={handlePremium} />}
+        {tab === "payments" && <PaymentsTab payments={payments} onAction={handlePayment} />}
       </div>
     </div>
   );
 };
 
-const StatCard = ({ icon, title, value, color, testId }) => {
-  return (
-    <div
-      className="stat-card p-6 rounded-xl border"
-      style={{
-        backgroundColor: '#141414',
-        borderColor: 'rgba(255,255,255,0.1)',
-        borderWidth: '1px'
-      }}
-      data-testid={testId}
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div style={{ color }}>{icon}</div>
-      </div>
-      <div>
+const OverviewTab = ({ data }) => (
+  <div>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <MiniStat label="Kullanici" value={data.total_users} color="#007AFF" testId="admin-stat-users" />
+      <MiniStat label="Premium" value={data.premium_users} color="#00FF66" testId="admin-stat-premium" />
+      <MiniStat label="Toplam Kupon" value={data.total_coupons} color="#FFCC00" testId="admin-stat-coupons" />
+      <MiniStat label="Bugun Kupon" value={data.today_coupons} color="#FF3B30" testId="admin-stat-today" />
+    </div>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <MiniStat label="Haftalik Kupon" value={data.weekly_coupons} color="#A855F7" testId="admin-stat-weekly" />
+      <MiniStat label="Kazanan" value={data.won} color="#00FF66" testId="admin-stat-won" />
+      <MiniStat label="Kaybeden" value={data.lost} color="#FF3B30" testId="admin-stat-lost" />
+      <MiniStat label="Basari %" value={`${data.win_rate}%`} color="#007AFF" testId="admin-stat-winrate" />
+    </div>
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <MiniStat label="Bekleyen Odeme" value={data.pending_payments} color="#FFCC00" testId="admin-stat-pending" />
+      <MiniStat label="Onaylanan Odeme" value={data.approved_payments} color="#00FF66" testId="admin-stat-approved" />
+      <MiniStat label="Toplam Gelir" value={`${data.revenue} TL`} color="#A855F7" testId="admin-stat-revenue" />
+    </div>
+  </div>
+);
+
+const UsersTab = ({ users, onPremium }) => (
+  <div className="overflow-x-auto">
+    <table className="w-full text-left" style={{ borderCollapse: "separate", borderSpacing: "0 8px" }}>
+      <thead>
+        <tr style={{ color: "#52525B" }}>
+          <th className="px-4 py-2 text-xs">Kullanici</th>
+          <th className="px-4 py-2 text-xs">Telegram ID</th>
+          <th className="px-4 py-2 text-xs">Plan</th>
+          <th className="px-4 py-2 text-xs">Kupon</th>
+          <th className="px-4 py-2 text-xs">Bitis</th>
+          <th className="px-4 py-2 text-xs">Islem</th>
+        </tr>
+      </thead>
+      <tbody>
+        {users.map((u, i) => {
+          const isPrem = u.is_premium && u.premium_until && new Date(u.premium_until) > new Date();
+          return (
+            <tr
+              key={i}
+              className="rounded-lg"
+              style={{ backgroundColor: "#141414" }}
+              data-testid={`user-row-${i}`}
+            >
+              <td className="px-4 py-3 rounded-l-lg">
+                <span style={{ color: "#fff" }}>@{u.username || "-"}</span>
+                {u.is_admin && <span className="ml-2 text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#FF3B30", color: "#fff" }}>ADMIN</span>}
+              </td>
+              <td className="px-4 py-3" style={{ color: "#A1A1AA" }}>{u.telegram_id}</td>
+              <td className="px-4 py-3">
+                <span
+                  className="text-xs px-2 py-1 rounded font-semibold"
+                  style={{
+                    backgroundColor: isPrem ? "rgba(0,255,102,0.15)" : "rgba(255,255,255,0.05)",
+                    color: isPrem ? "#00FF66" : "#A1A1AA",
+                  }}
+                >
+                  {isPrem ? "PREMIUM" : "UCRETSIZ"}
+                </span>
+              </td>
+              <td className="px-4 py-3" style={{ color: "#fff" }}>{u.total_coupons || 0}</td>
+              <td className="px-4 py-3" style={{ color: "#A1A1AA", fontSize: "12px" }}>
+                {isPrem ? u.premium_until?.substring(0, 10) : "-"}
+              </td>
+              <td className="px-4 py-3 rounded-r-lg">
+                {isPrem ? (
+                  <button
+                    onClick={() => onPremium(u.telegram_id, "deactivate")}
+                    className="text-xs px-3 py-1 rounded font-semibold"
+                    style={{ backgroundColor: "rgba(255,59,48,0.15)", color: "#FF3B30", border: "none", cursor: "pointer" }}
+                    data-testid={`deactivate-premium-${i}`}
+                  >
+                    Kaldir
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onPremium(u.telegram_id, "activate")}
+                    className="text-xs px-3 py-1 rounded font-semibold"
+                    style={{ backgroundColor: "rgba(0,255,102,0.15)", color: "#00FF66", border: "none", cursor: "pointer" }}
+                    data-testid={`activate-premium-${i}`}
+                  >
+                    Premium Ver
+                  </button>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+);
+
+const PaymentsTab = ({ payments, onAction }) => (
+  <div className="space-y-4">
+    {payments.length === 0 ? (
+      <p style={{ color: "#52525B", textAlign: "center", padding: "40px" }}>Odeme kaydi yok.</p>
+    ) : (
+      payments.map((p, i) => (
         <div
-          className="text-5xl font-bold mb-1"
-          style={{ fontFamily: 'Bebas Neue', color: '#FFFFFF', letterSpacing: '-0.05em' }}
+          key={i}
+          className="p-4 rounded-lg border flex items-center justify-between"
+          style={{ backgroundColor: "#141414", borderColor: "rgba(255,255,255,0.1)" }}
+          data-testid={`payment-row-${i}`}
         >
-          {value}
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <span style={{ color: "#fff", fontWeight: "600" }}>@{p.username || "-"}</span>
+              <span className="text-xs" style={{ color: "#A1A1AA" }}>#{p.id}</span>
+              <span
+                className="text-xs px-2 py-0.5 rounded font-semibold"
+                style={{
+                  backgroundColor:
+                    p.status === "pending" ? "rgba(255,204,0,0.15)" : p.status === "approved" ? "rgba(0,255,102,0.15)" : "rgba(255,59,48,0.15)",
+                  color: p.status === "pending" ? "#FFCC00" : p.status === "approved" ? "#00FF66" : "#FF3B30",
+                }}
+              >
+                {p.status === "pending" ? "BEKLIYOR" : p.status === "approved" ? "ONAYLANDI" : "REDDEDILDI"}
+              </span>
+            </div>
+            <div className="text-xs" style={{ color: "#52525B" }}>
+              {p.amount} TL | {p.created_at?.substring(0, 16).replace("T", " ")}
+            </div>
+          </div>
+          {p.status === "pending" && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => onAction(p.id, "approve")}
+                className="text-xs px-4 py-2 rounded font-semibold"
+                style={{ backgroundColor: "#00FF66", color: "#000", border: "none", cursor: "pointer" }}
+                data-testid={`approve-payment-${i}`}
+              >
+                Onayla
+              </button>
+              <button
+                onClick={() => onAction(p.id, "reject")}
+                className="text-xs px-4 py-2 rounded font-semibold"
+                style={{ backgroundColor: "#FF3B30", color: "#fff", border: "none", cursor: "pointer" }}
+                data-testid={`reject-payment-${i}`}
+              >
+                Reddet
+              </button>
+            </div>
+          )}
         </div>
-        <div className="text-sm" style={{ color: '#A1A1AA' }}>
-          {title}
-        </div>
-      </div>
-    </div>
-  );
-};
+      ))
+    )}
+  </div>
+);
 
-const ContentCard = ({ title, icon, children }) => {
-  return (
-    <div
-      className="p-6 rounded-xl border"
-      style={{
-        backgroundColor: '#141414',
-        borderColor: 'rgba(255,255,255,0.1)',
-        borderWidth: '1px'
-      }}
-    >
-      <div className="flex items-center gap-3 mb-4">
-        <div style={{ color: '#007AFF' }}>{icon}</div>
-        <h2
-          className="text-2xl"
-          style={{ fontFamily: 'Bebas Neue', color: '#FFFFFF', letterSpacing: '-0.05em' }}
-        >
-          {title}
-        </h2>
-      </div>
-      {children}
-    </div>
-  );
-};
+const MiniStat = ({ label, value, color, testId }) => (
+  <div
+    className="p-4 rounded-xl border"
+    style={{ backgroundColor: "#141414", borderColor: "rgba(255,255,255,0.1)" }}
+    data-testid={testId}
+  >
+    <div className="text-xs mb-1" style={{ color: "#52525B" }}>{label}</div>
+    <div className="text-2xl font-bold" style={{ color, fontFamily: "Bebas Neue", letterSpacing: "-0.03em" }}>{value}</div>
+  </div>
+);
 
+/* ========== MAIN APP ========== */
 function App() {
+  const [page, setPage] = useState("admin");
+
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-        </Routes>
-      </BrowserRouter>
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-6 py-3 border-b" style={{ backgroundColor: "#0A0A0A", borderColor: "rgba(255,255,255,0.1)" }}>
+        <h1 className="text-xl font-bold" style={{ color: "#fff", fontFamily: "Bebas Neue", letterSpacing: "-0.03em" }} data-testid="nav-title">
+          BETTING BOT
+        </h1>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setPage("admin")}
+            data-testid="nav-admin"
+            className="px-4 py-1.5 rounded-lg text-sm font-semibold"
+            style={{
+              backgroundColor: page === "admin" ? "#007AFF" : "transparent",
+              color: page === "admin" ? "#fff" : "#A1A1AA",
+              border: page === "admin" ? "none" : "1px solid rgba(255,255,255,0.1)",
+              cursor: "pointer",
+            }}
+          >
+            Admin Panel
+          </button>
+        </div>
+      </nav>
+      {page === "admin" && <AdminPanel />}
     </div>
   );
 }

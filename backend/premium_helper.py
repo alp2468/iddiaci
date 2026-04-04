@@ -11,95 +11,62 @@ class PremiumHelper:
     # Fiyatlar
     PRICES = {
         "monthly": 99,
-        "yearly": 990  # 2 ay bedava
+        "yearly": 990
     }
     
     # Limitler
-    FREE_DAILY_LIMIT = 3
-    PREMIUM_DAILY_LIMIT = 999999  # Sınırsız
+    FREE_TOTAL_LIMIT = 3  # Toplam 3 hak, sonra premium sart
     
-    # Ödeme bilgileri (SENİN BİLGİLERİN)
+    # Odeme bilgileri
     PAYMENT_INFO = {
-        "papara": "1234567890",  # Senin Papara no
-        "papara_name": "İsim Soyisim",  # Senin adın
-        "iban": "TR00 0000 0000 0000 0000 0000",  # Senin IBAN
-        "iban_name": "İsim Soyisim"  # Senin adın
+        "papara": "1234567890",
+        "papara_name": "Isim Soyisim",
+        "iban": "TR00 0000 0000 0000 0000 0000",
+        "iban_name": "Isim Soyisim"
     }
     
     @staticmethod
     def is_premium_active(user: Dict) -> bool:
-        """Premium aktif mi kontrol et"""
         if not user.get('is_premium'):
             return False
-        
         premium_until = user.get('premium_until')
         if not premium_until:
             return False
-        
         try:
             until_date = datetime.fromisoformat(premium_until)
             return datetime.utcnow() < until_date
-        except:
+        except Exception:
             return False
     
     @staticmethod
-    def get_daily_limit(user: Dict) -> int:
-        """Kullanıcının günlük limitini döndür"""
-        if PremiumHelper.is_premium_active(user):
-            return PremiumHelper.PREMIUM_DAILY_LIMIT
-        return PremiumHelper.FREE_DAILY_LIMIT
-    
-    @staticmethod
     def can_create_coupon(user: Dict) -> tuple[bool, str]:
-        """Kupon oluşturabilir mi kontrol et"""
-        # Admin her zaman olusturabilir
         if user.get('is_admin'):
             return True, "OK"
-        
-        # Günlük limit kontrolü
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        last_coupon_date = user.get('last_coupon_date', '')
-        
-        # Yeni gün başlamışsa sayacı sıfırla
-        if last_coupon_date != today:
+        if PremiumHelper.is_premium_active(user):
             return True, "OK"
-        
-        daily_count = user.get('daily_coupon_count', 0)
-        limit = PremiumHelper.get_daily_limit(user)
-        
-        if daily_count >= limit:
-            if PremiumHelper.is_premium_active(user):
-                return True, "OK"  # Premium sınırsız
-            else:
-                return False, f"Gunluk kupon limitiniz doldu! ({daily_count}/{limit})\n\nPremium ile sinirsiz kupon\n/premium"
-        
+        total = user.get('total_coupons', 0)
+        if total >= PremiumHelper.FREE_TOTAL_LIMIT:
+            return False, f"Ucretsiz kupon hakkiniz bitti! ({total}/{PremiumHelper.FREE_TOTAL_LIMIT})\n\nDevam etmek icin Premium'a gecin\n/premium"
         return True, "OK"
     
     @staticmethod
     def can_use_risk_level(user: Dict, risk_level: str) -> tuple[bool, str]:
-        """Risk seviyesini kullanabilir mi"""
-        # Admin her seviyeyi kullanabilir
         if user.get('is_admin'):
             return True, "OK"
-        
         if risk_level == "zor":
             if not PremiumHelper.is_premium_active(user):
                 return False, "Zor seviye sadece Premium uyeler icin!\n\nPremium'a gec\n/premium"
-        
         return True, "OK"
     
     @staticmethod
     def activate_premium(user_id: str, premium_type: str) -> Dict:
-        """Premium aktif et"""
         now = datetime.utcnow()
-        
         if premium_type == "monthly":
             until = now + timedelta(days=30)
         elif premium_type == "yearly":
             until = now + timedelta(days=365)
         else:
             until = now + timedelta(days=30)
-        
         return {
             "is_premium": True,
             "premium_since": now.isoformat(),
@@ -110,7 +77,6 @@ class PremiumHelper:
     
     @staticmethod
     def deactivate_premium() -> Dict:
-        """Premium kaldır"""
         return {
             "is_premium": False,
             "premium_since": None,
@@ -120,34 +86,30 @@ class PremiumHelper:
     
     @staticmethod
     def get_remaining_days(user: Dict) -> int:
-        """Kalan gün sayısı"""
         if not PremiumHelper.is_premium_active(user):
             return 0
-        
         try:
             until = datetime.fromisoformat(user['premium_until'])
             diff = until - datetime.utcnow()
             return max(0, diff.days)
-        except:
+        except Exception:
             return 0
     
     @staticmethod
     def format_premium_info() -> str:
-        """Premium bilgi mesajı"""
         return f"""**Premium Uyelik**
 
 **Ucretsiz Plan:**
-- Gunde {PremiumHelper.FREE_DAILY_LIMIT} kupon
+- Toplam {PremiumHelper.FREE_TOTAL_LIMIT} kupon hakki
 - Banko + Orta seviye
-- Temel AI analizi
 
 **Premium - {PremiumHelper.PRICES['monthly']}TL/ay:**
 - Sinirsiz kupon
 - Tum seviyeler (Zor dahil)
-- Detayli AI analizi (%85+ guven)
+- Detayli AI analizi
 - Ozel destek
 
-📱 **Ödeme Bilgileri:**
+**Odeme Bilgileri:**
 
 **Papara:** {PremiumHelper.PAYMENT_INFO['papara']}
 Ad: {PremiumHelper.PAYMENT_INFO['papara_name']}
@@ -157,11 +119,9 @@ Ad: {PremiumHelper.PAYMENT_INFO['papara_name']}
 **IBAN:** {PremiumHelper.PAYMENT_INFO['iban']}
 Ad: {PremiumHelper.PAYMENT_INFO['iban_name']}
 
-⚠️ **Önemli:**
-Ödeme açıklamasına Telegram kullanıcı adınızı yazın!
+Odeme aciklamasina Telegram kullanici adinizi yazin!
+Ornek: "@kullaniciadi PREMIUM"
 
-Örnek: "@kullaniciadi PREMIUM"
-
-**Ödeme yaptıktan sonra:**
-/odemeyaptim komutu ile dekontu gönderin
+**Odeme yaptiktan sonra:**
+/odemeyaptim komutu ile dekontu gonderin
 """
