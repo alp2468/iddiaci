@@ -6,28 +6,32 @@ logger = logging.getLogger(__name__)
 
 class CouponGeneratorV2:
     def __init__(self):
-        # Lig öncelikleri (skor: yüksek = öncelikli)
+        # Lig öncelikleri - buyuk ligler agirlikli oncelikli
         self.league_priority = {
-            # 5 Büyük Lig (Öncelikli)
-            "İngiltere Premier Lig": 10,
-            "İspanya La Liga": 10,
-            "Almanya Bundesliga": 10,
-            "İtalya Serie A": 10,
-            "Fransa Ligue 1": 10,
-            "Türkiye Süper Lig": 9,
+            # Buyuk 5 Lig + Turkiye (EN YUKSEK ONCELIK)
+            "İngiltere Premier Lig": 20,
+            "İspanya La Liga": 20,
+            "Almanya Bundesliga": 20,
+            "Fransa Ligue 1": 20,
+            "Türkiye Süper Lig": 18,
+            "İtalya Serie A": 20,
             
-            # Kupalar (Orta öncelik)
-            "Türkiye Kupası": 7,
-            "İngiltere FA Kupası": 8,
-            "İspanya Copa del Rey": 8,
-            "Almanya DFB Pokal": 8,
-            "İtalya Coppa Italia": 8,
-            "Fransa Coupe de France": 8,
+            # Buyuk Kupalar
+            "Türkiye Kupası": 12,
+            "İngiltere FA Kupası": 14,
+            "İspanya Copa del Rey": 14,
+            "Almanya DFB Pokal": 14,
+            "İtalya Coppa Italia": 14,
+            "Fransa Coupe de France": 14,
+            "UEFA Şampiyonlar Ligi": 20,
+            "UEFA Avrupa Ligi": 16,
+            "UEFA Konferans Ligi": 14,
             
-            # Alt Ligler (Düşük öncelik)
-            "Türkiye 1. Lig": 4,
-            "İngiltere Championship": 5,
-            "Hollanda Eredivisie": 6,
+            # Alt Ligler (DUSUK ONCELIK)
+            "Türkiye 1. Lig": 5,
+            "İngiltere Championship": 6,
+            "Hollanda Eredivisie": 8,
+            "Portekiz Liga": 8,
         }
     
     def _get_league_priority(self, league: str) -> int:
@@ -102,7 +106,7 @@ class CouponGeneratorV2:
                     'away_team': match['away_team'],
                     'league': league,
                     'league_priority': league_priority,
-                    'adjusted_confidence': pred.get('confidence', 0) + (league_priority * 1.5)
+                    'adjusted_confidence': pred.get('confidence', 0) + (league_priority * 3)
                 })
         return enriched
     
@@ -151,9 +155,9 @@ class CouponGeneratorV2:
         if not safe_predictions:
             safe_predictions = high_confidence[:] if high_confidence else predictions[:]
         
-        # Lig filtresi uygula: en fazla 1 alt lig
-        top_league = [p for p in safe_predictions if p.get('league_priority', 5) >= 7]
-        low_league = [p for p in safe_predictions if p.get('league_priority', 5) < 7]
+        # Lig filtresi: buyuk lig oncelikli, alt lig en fazla 1
+        top_league = [p for p in safe_predictions if p.get('league_priority', 3) >= 12]
+        low_league = [p for p in safe_predictions if p.get('league_priority', 3) < 12]
         
         # Agirlikli rastgele sec
         target_count = random.choice([2, 3])
@@ -186,9 +190,9 @@ class CouponGeneratorV2:
         if not medium_predictions:
             medium_predictions = medium_confidence[:] if medium_confidence else predictions[:]
         
-        # Lig filtresi
-        top_league = [p for p in medium_predictions if p.get('league_priority', 5) >= 7]
-        low_league = [p for p in medium_predictions if p.get('league_priority', 5) < 7]
+        # Lig filtresi: buyuk lig oncelikli
+        top_league = [p for p in medium_predictions if p.get('league_priority', 3) >= 12]
+        low_league = [p for p in medium_predictions if p.get('league_priority', 3) < 12]
         
         target_count = random.choice([3, 4, 5])
         selected = self._weighted_sample(top_league, target_count)
