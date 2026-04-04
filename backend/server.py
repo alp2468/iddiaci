@@ -50,15 +50,31 @@ async def lifespan(app: FastAPI):
     bot_task = asyncio.create_task(bot.start_polling())
     logger.info("Telegram bot started")
     
+    # Premium kontrol gorevi (her 6 saatte bir)
+    premium_task = asyncio.create_task(premium_check_loop())
+    
     yield
     
     # Shutdown
     logger.info("Stopping Telegram bot...")
+    premium_task.cancel()
     if bot_task:
         await bot.stop_polling()
         bot_task.cancel()
     client.close()
     logger.info("Shutdown complete")
+
+
+async def premium_check_loop():
+    """Suresi dolan premiumlari kaldir, hatirlatma gonder"""
+    while True:
+        try:
+            await asyncio.sleep(6 * 3600)  # 6 saat
+            await bot.check_expired_premiums()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Premium check error: {e}")
 
 # Create the main app
 app = FastAPI(lifespan=lifespan)

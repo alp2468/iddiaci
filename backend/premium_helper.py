@@ -104,7 +104,8 @@ class PremiumHelper:
             "is_premium": True,
             "premium_since": now.isoformat(),
             "premium_until": until.isoformat(),
-            "premium_type": premium_type
+            "premium_type": premium_type,
+            "expiry_reminder_sent": False
         }
     
     @staticmethod

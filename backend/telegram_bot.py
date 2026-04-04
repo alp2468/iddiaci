@@ -4,7 +4,7 @@ import os
 import logging
 from typing import Dict
 from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime
+from datetime import datetime, timedelta
 from cache_manager import MatchCacheManager
 from premium_helper import PremiumHelper
 
@@ -824,6 +824,60 @@ Senin ID: `{self.admin_id}`
             await self.app.updater.stop()
             await self.app.stop()
             await self.app.shutdown()
+
+    async def check_expired_premiums(self):
+        """Suresi dolan premiumlari kaldir, yaklasan sureler icin hatirlatma gonder"""
+        now = datetime.utcnow()
+        
+        # 1) Suresi dolmus premiumlar -> kaldir ve bildirim gonder
+        expired_users = await self.db.users.find({
+            "is_premium": True,
+            "premium_until": {"$lte": now.isoformat()}
+        }).to_list(100)
+        
+        for user_data in expired_users:
+            # Premium kaldir
+            deactivate = self.premium_helper.deactivate_premium()
+            await self.db.users.update_one(
+                {"telegram_id": user_data['telegram_id']},
+                {"$set": deactivate}
+            )
+            
+            # Kullaniciya bildirim
+            try:
+                await self.app.bot.send_message(
+                    chat_id=user_data['telegram_id'],
+                    text="Premium uyeliginiz sona erdi.\n\nUcretsiz planda gunde 3 kupon hakkiniz var.\nYenilemek icin: /premium"
+                )
+            except Exception as e:
+                logger.error(f"Expired notification failed for {user_data['telegram_id']}: {e}")
+            
+            logger.info(f"Premium expired for user {user_data['telegram_id']}")
+        
+        # 2) 3 gun icinde dolacak premiumlar -> hatirlatma
+        three_days = (now + timedelta(days=3)).isoformat()
+        expiring_users = await self.db.users.find({
+            "is_premium": True,
+            "premium_until": {"$gt": now.isoformat(), "$lte": three_days},
+            "expiry_reminder_sent": {"$ne": True}
+        }).to_list(100)
+        
+        for user_data in expiring_users:
+            remaining = self.premium_helper.get_remaining_days(user_data)
+            try:
+                await self.app.bot.send_message(
+                    chat_id=user_data['telegram_id'],
+                    text=f"Premium uyeliginizin bitmesine {remaining} gun kaldi.\n\nYenilemek icin: /premium\nOdeme: /odemeyaptim"
+                )
+                await self.db.users.update_one(
+                    {"telegram_id": user_data['telegram_id']},
+                    {"$set": {"expiry_reminder_sent": True}}
+                )
+            except Exception as e:
+                logger.error(f"Reminder failed for {user_data['telegram_id']}: {e}")
+        
+        if expired_users or expiring_users:
+            logger.info(f"Premium check: {len(expired_users)} expired, {len(expiring_users)} reminded")
 
     async def premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Premium bilgileri göster"""
