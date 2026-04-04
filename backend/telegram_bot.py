@@ -392,8 +392,13 @@ Lütfen risk seviyesini seçin:
         emoji = risk_emoji.get(coupon["risk_level"], "⚪")
         name = risk_name.get(coupon["risk_level"], "BİLİNMEYEN")
         
+        # Kupon tarihi
+        from datetime import datetime
+        kupon_tarihi = datetime.utcnow().strftime("%d.%m.%Y %H:%M")
+        
         message = f"""
 {emoji} **{name} KUPON**
+📅 **Tarih:** {kupon_tarihi}
 
 📊 **Toplam Oran:** {coupon['total_odds']}
 🎯 **Maç Sayısı:** {coupon['match_count']}
