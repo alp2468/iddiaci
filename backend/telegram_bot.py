@@ -5,6 +5,7 @@ import logging
 from typing import Dict
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
+from cache_manager import MatchCacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ class BettingBot:
         self.scraper = scraper
         self.analyzer = analyzer
         self.coupon_gen = coupon_gen
+        self.cache_manager = MatchCacheManager(db, scraper)
         self.app = None
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -125,14 +127,14 @@ Lütfen risk seviyesini seçin:
         if query.data.startswith("risk_"):
             risk_level = query.data.replace("risk_", "")
             
-            # Show processing message
-            await query.edit_message_text(
-                "⏳ Maçlar analiz ediliyor... Lütfen bekleyin..."
+            # Show processing message with progress
+            progress_msg = await query.edit_message_text(
+                "⏳ Kupon hazırlanıyor...\n\n🔄 Başlatılıyor..."
             )
             
             try:
-                # Generate coupon
-                coupon = await self._generate_coupon(risk_level, str(user.id))
+                # Generate coupon with progress updates
+                coupon = await self._generate_coupon(risk_level, str(user.id), progress_msg)
                 
                 # Format and send coupon
                 coupon_message = self._format_coupon(coupon)
@@ -146,7 +148,7 @@ Lütfen risk seviyesini seçin:
                 ]
                 status_markup = InlineKeyboardMarkup(status_keyboard)
                 
-                await query.edit_message_text(
+                await progress_msg.edit_text(
                     coupon_message, 
                     parse_mode="Markdown",
                     reply_markup=status_markup
@@ -154,7 +156,7 @@ Lütfen risk seviyesini seçin:
                 
             except Exception as e:
                 logger.error(f"Error generating coupon: {str(e)}")
-                await query.edit_message_text(
+                await progress_msg.edit_text(
                     f"❌ Kupon oluşturulurken bir hata oluştu: {str(e)}\n\nLütfen tekrar deneyin."
                 )
         
@@ -330,48 +332,77 @@ Lütfen risk seviyesini seçin:
                 'won_coupons': 0
             }
     
-    async def _generate_coupon(self, risk_level: str, user_id: str) -> Dict:
+    async def _generate_coupon(self, risk_level: str, user_id: str, progress_message=None) -> Dict:
         """
-        Generate coupon by scraping matches, analyzing, and creating coupon
+        Generate coupon with progress updates
         """
-        # Scrape today's matches (real data)
-        matches = await self.scraper.get_today_matches()
-        
-        if not matches:
-            raise Exception("Bugün için maç bulunamadı.")
-        
-        # Save matches to database
-        for match in matches:
-            await self.db.matches.insert_one(match)
-        
-        # Analyze matches with AI (her maç için birden fazla tahmin)
-        all_predictions = []
-        for match in matches[:15]:  # İlk 15 maç
-            predictions = await self.analyzer.analyze_match(match)
-            for pred in predictions:
-                await self.db.predictions.insert_one(pred)
-                all_predictions.append(pred)
-        
-        # Generate coupon
-        coupon = self.coupon_gen.generate_coupon(risk_level, matches, all_predictions)
-        coupon["user_telegram_id"] = user_id
-        
-        # Save coupon
-        await self.db.coupons.insert_one(coupon)
-        
-        # Log activity
-        await self.db.bot_activities.insert_one({
-            "activity_type": "coupon_generated",
-            "user_telegram_id": user_id,
-            "details": {
-                "risk_level": risk_level,
-                "total_odds": coupon["total_odds"],
-                "match_count": coupon["match_count"]
-            },
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        
-        return coupon
+        try:
+            # 1. Maçları cache'den getir (hızlı!)
+            if progress_message:
+                await progress_message.edit_text("⏳ Kupon hazırlanıyor...\n\n🔄 Maçlar yükleniyor...")
+            
+            matches = await self.cache_manager.get_cached_matches()
+            
+            if not matches:
+                raise Exception("Bugün için maç bulunamadı.")
+            
+            if progress_message:
+                await progress_message.edit_text(
+                    f"⏳ Kupon hazırlanıyor...\n\n"
+                    f"✅ {len(matches)} maç yüklendi\n"
+                    f"🤖 AI analiz yapılıyor..."
+                )
+            
+            # 2. AI analizi (ilk 15 maç)
+            all_predictions = []
+            analysis_batch_size = min(15, len(matches))
+            
+            for i, match in enumerate(matches[:analysis_batch_size], 1):
+                predictions = await self.analyzer.analyze_match(match)
+                for pred in predictions:
+                    await self.db.predictions.insert_one(pred)
+                    all_predictions.append(pred)
+                
+                # Her 3 maçta bir progress güncelle
+                if i % 3 == 0 and progress_message:
+                    await progress_message.edit_text(
+                        f"⏳ Kupon hazırlanıyor...\n\n"
+                        f"✅ {len(matches)} maç yüklendi\n"
+                        f"🤖 AI analiz: {i}/{analysis_batch_size} maç"
+                    )
+            
+            if progress_message:
+                await progress_message.edit_text(
+                    f"⏳ Kupon hazırlanıyor...\n\n"
+                    f"✅ {len(matches)} maç yüklendi\n"
+                    f"✅ {len(all_predictions)} tahmin oluşturuldu\n"
+                    f"🎯 En iyi seçimler yapılıyor..."
+                )
+            
+            # 3. Kupon oluştur
+            coupon = self.coupon_gen.generate_coupon(risk_level, matches, all_predictions)
+            coupon["user_telegram_id"] = user_id
+            
+            # 4. Kuponu kaydet
+            await self.db.coupons.insert_one(coupon)
+            
+            # 5. Log activity
+            await self.db.bot_activities.insert_one({
+                "activity_type": "coupon_generated",
+                "user_telegram_id": user_id,
+                "details": {
+                    "risk_level": risk_level,
+                    "total_odds": coupon["total_odds"],
+                    "match_count": coupon["match_count"]
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            return coupon
+            
+        except Exception as e:
+            logger.error(f"Error generating coupon: {str(e)}")
+            raise
     
     def _format_coupon(self, coupon: Dict) -> str:
         """
