@@ -125,18 +125,18 @@ class PremiumHelper:
     @staticmethod
     def format_premium_info() -> str:
         """Premium bilgi mesajı"""
-        return f"""💎 **Premium Üyelik**
+        return f"""**Premium Uyelik**
 
-🆓 **Ücretsiz Plan:**
-• Günde 5 kupon
-• Banko + Orta seviye
-• Temel AI analizi
+**Ucretsiz Plan:**
+- Gunde {PremiumHelper.FREE_DAILY_LIMIT} kupon
+- Banko + Orta seviye
+- Temel AI analizi
 
-💎 **Premium - ₺{PremiumHelper.PRICES['monthly']}/ay:**
-• ✨ Sınırsız kupon
-• ✨ Tüm seviyeler (Zor dahil)
-• ✨ Detaylı AI analizi (%85+ güven)
-• ✨ Özel destek
+**Premium - {PremiumHelper.PRICES['monthly']}TL/ay:**
+- Sinirsiz kupon
+- Tum seviyeler (Zor dahil)
+- Detayli AI analizi (%85+ guven)
+- Ozel destek
 
 📱 **Ödeme Bilgileri:**
 
