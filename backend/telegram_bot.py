@@ -28,6 +28,7 @@ class BettingBot:
         Handle /start command
         """
         user = update.effective_user
+        is_admin = str(user.id) == self.admin_id
         
         # Save user to database
         await self.db.users.update_one(
@@ -38,6 +39,7 @@ class BettingBot:
                     "username": user.username,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
+                    "is_admin": is_admin,
                     "last_interaction": datetime.utcnow().isoformat()
                 },
                 "$setOnInsert": {
@@ -46,6 +48,8 @@ class BettingBot:
             },
             upsert=True
         )
+        
+        admin_text = "\n/admin - Admin paneli" if is_admin else ""
         
         welcome_message = f"""
 **Hos Geldiniz {user.first_name}!**
@@ -62,7 +66,7 @@ Ben futbol maclarini analiz edip sizin icin bahis kuponlari olusturan bir botum.
 /maclar - Bugunku maclari gor
 /kuponlarim - Kuponlarimi gor
 /premium - Premium uyelik
-/help - Yardim menusu
+/help - Yardim menusu{admin_text}
 
 Ucretsiz 3 kupon hakkiniz var!
 Hemen baslamak icin /kupon komutunu kullanin!
@@ -86,6 +90,7 @@ Hemen baslamak icin /kupon komutunu kullanin!
         # Kullanıcı bilgisini al
         user_data = await self.db.users.find_one({"telegram_id": str(user.id)})
         is_premium = user_data and self.premium_helper.is_premium_active(user_data)
+        is_admin = user_data and user_data.get('is_admin', False)
         
         # Günlük kullanım hesapla
         today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -94,14 +99,15 @@ Hemen baslamak icin /kupon komutunu kullanin!
             if user_data.get('last_coupon_date') == today:
                 daily_count = user_data.get('daily_coupon_count', 0)
         
-        remaining = max(0, self.premium_helper.FREE_DAILY_LIMIT - daily_count) if not is_premium else 999
+        unlimited = is_premium or is_admin
+        remaining = 999 if unlimited else max(0, self.premium_helper.FREE_DAILY_LIMIT - daily_count)
         
         # Aylık başarı oranlarını hesapla
         success_rates = await self._calculate_monthly_success_rates()
         
         # Zor seviye kilidi
         zor_label = f"Zor (+10 Oran) | Bu Ay: %{success_rates['zor']}"
-        if not is_premium:
+        if not unlimited:
             zor_label = "Zor (PREMIUM GEREKLI)"
         
         keyboard = [
@@ -120,8 +126,8 @@ Hemen baslamak icin /kupon komutunu kullanin!
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        if is_premium:
-            status_text = "Premium - Sinirsiz kupon"
+        if unlimited:
+            status_text = "Admin - Sinirsiz kupon" if is_admin else "Premium - Sinirsiz kupon"
         else:
             status_text = f"Ucretsiz - Kalan hak: {remaining}/{self.premium_helper.FREE_DAILY_LIMIT}"
         
@@ -134,7 +140,7 @@ Lutfen risk seviyesini secin:
 
 **Banko:** Dusuk riskli, 2-3 mac | Bu ay %{success_rates['banko']} basari
 **Orta:** Orta riskli, 3-5 mac | Bu ay %{success_rates['orta']} basari
-**Zor:** Yuksek riskli, yuksek oran | Bu ay %{success_rates['zor']} basari {'(Premium)' if not is_premium else ''}
+**Zor:** Yuksek riskli, yuksek oran | Bu ay %{success_rates['zor']} basari {'(Premium)' if not unlimited else ''}
 
 **Toplam Kupon:** {success_rates['total_coupons']} | Kazanan: {success_rates['won_coupons']}
         """
@@ -544,6 +550,182 @@ Not: Tum tahminler yapay zeka destekli analizlere dayanir. Bahis oynarken dikkat
         
         return message
     
+    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin yonetim paneli"""
+        user = update.effective_user
+        
+        if str(user.id) != self.admin_id:
+            await update.message.reply_text("Bu komutu kullanma yetkiniz yok.")
+            return
+        
+        # Istatistikler
+        total_users = await self.db.users.count_documents({})
+        premium_users = await self.db.users.count_documents({"is_premium": True})
+        total_coupons = await self.db.coupons.count_documents({})
+        pending_payments = await self.db.payments.count_documents({"status": "pending"})
+        
+        # Bugunun kuponlari
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today_coupons = await self.db.coupons.count_documents({
+            "created_at": {"$regex": f"^{today}"}
+        })
+        
+        message = f"""**ADMIN PANELI**
+
+**Istatistikler:**
+- Toplam Kullanici: {total_users}
+- Premium Kullanici: {premium_users}
+- Toplam Kupon: {total_coupons}
+- Bugun Kupon: {today_coupons}
+- Bekleyen Odeme: {pending_payments}
+
+**Admin Komutlari:**
+/admin\\_payments - Bekleyen odemeleri gor
+/admin\\_users - Kullanici listesi
+/admin\\_cache - Cache'i yenile
+/admin\\_premium @kullanici - Manuel premium ver
+/admin\\_stats - Detayli istatistik
+
+Senin ID: `{self.admin_id}`
+"""
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
+    async def admin_users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin: Kullanici listesi"""
+        user = update.effective_user
+        if str(user.id) != self.admin_id:
+            return
+        
+        users = await self.db.users.find({}).sort("last_interaction", -1).limit(20).to_list(20)
+        
+        if not users:
+            await update.message.reply_text("Henuz kullanici yok.")
+            return
+        
+        message = f"**Kullanicilar** ({len(users)})\n\n"
+        for i, u in enumerate(users, 1):
+            username = u.get('username', '-')
+            premium = "Premium" if u.get('is_premium') else "Ucretsiz"
+            admin = " (ADMIN)" if u.get('is_admin') else ""
+            coupon_count = u.get('total_coupons', 0)
+            message += f"{i}. @{username} | {premium}{admin} | {coupon_count} kupon\n"
+        
+        if len(message) > 4000:
+            message = message[:3990] + "\n..."
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
+    async def admin_cache_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin: Cache yenile"""
+        user = update.effective_user
+        if str(user.id) != self.admin_id:
+            return
+        
+        await update.message.reply_text("Cache yenileniyor...")
+        await self.cache_manager.force_refresh()
+        
+        matches = await self.db.matches.find({}).to_list(1000)
+        await update.message.reply_text(f"Cache yenilendi! {len(matches)} mac yuklendi.")
+    
+    async def admin_give_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin: Manuel premium ver"""
+        user = update.effective_user
+        if str(user.id) != self.admin_id:
+            return
+        
+        # /admin_premium @username veya telegram_id
+        args = context.args
+        if not args:
+            await update.message.reply_text("Kullanim: /admin\\_premium <telegram\\_id veya @username>")
+            return
+        
+        target = args[0].replace("@", "")
+        
+        # Kullaniciyi bul (username veya telegram_id)
+        target_user = await self.db.users.find_one({
+            "$or": [
+                {"username": target},
+                {"telegram_id": target}
+            ]
+        })
+        
+        if not target_user:
+            await update.message.reply_text(f"Kullanici bulunamadi: {target}")
+            return
+        
+        # Premium ver
+        premium_data = self.premium_helper.activate_premium(target_user['telegram_id'], "monthly")
+        await self.db.users.update_one(
+            {"telegram_id": target_user['telegram_id']},
+            {"$set": premium_data}
+        )
+        
+        username = target_user.get('username', target_user['telegram_id'])
+        await update.message.reply_text(f"@{username} artik 30 gunluk Premium!")
+        
+        # Kullaniciya bildirim
+        try:
+            await context.bot.send_message(
+                chat_id=target_user['telegram_id'],
+                text="Premium uyeliginiz aktif edildi! 30 gun boyunca sinirsiz kupon ve tum seviyelere erisim.\n\n/kupon - Hemen kupon olustur"
+            )
+        except Exception as e:
+            logger.error(f"Kullaniciya bildirim gonderilemedi: {str(e)}")
+    
+    async def admin_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin: Detayli istatistik"""
+        user = update.effective_user
+        if str(user.id) != self.admin_id:
+            return
+        
+        # Son 7 gun
+        from datetime import timedelta
+        now = datetime.utcnow()
+        week_ago = (now - timedelta(days=7)).isoformat()
+        
+        weekly_coupons = await self.db.coupons.count_documents({
+            "created_at": {"$gte": week_ago}
+        })
+        weekly_users = await self.db.users.count_documents({
+            "last_interaction": {"$gte": week_ago}
+        })
+        
+        # Risk dagilimi
+        banko_count = await self.db.coupons.count_documents({"risk_level": "banko"})
+        orta_count = await self.db.coupons.count_documents({"risk_level": "orta"})
+        zor_count = await self.db.coupons.count_documents({"risk_level": "zor"})
+        
+        # Kazanma orani
+        won = await self.db.coupons.count_documents({"status": "won"})
+        lost = await self.db.coupons.count_documents({"status": "lost"})
+        total_resolved = won + lost
+        win_rate = round((won / total_resolved * 100) if total_resolved > 0 else 0)
+        
+        # Gelir
+        approved_payments = await self.db.payments.count_documents({"status": "approved"})
+        total_revenue = approved_payments * 99
+        
+        message = f"""**DETAYLI ISTATISTIK**
+
+**Son 7 Gun:**
+- Aktif Kullanici: {weekly_users}
+- Olusturulan Kupon: {weekly_coupons}
+
+**Risk Dagilimi:**
+- Banko: {banko_count}
+- Orta: {orta_count}
+- Zor: {zor_count}
+
+**Basari Orani:**
+- Kazanan: {won} | Kaybeden: {lost}
+- Genel Basari: %{win_rate}
+
+**Gelir:**
+- Onaylanan Odeme: {approved_payments}
+- Toplam: {total_revenue}TL
+"""
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
     async def maclar_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Bugünkü maçları listele"""
         
@@ -599,7 +781,14 @@ Not: Tum tahminler yapay zeka destekli analizlere dayanir. Bahis oynarken dikkat
         # Premium komutlar
         self.app.add_handler(CommandHandler("premium", self.premium_command))
         self.app.add_handler(CommandHandler("odemeyaptim", self.odemeyaptim_command))
+        
+        # Admin komutlar
+        self.app.add_handler(CommandHandler("admin", self.admin_command))
         self.app.add_handler(CommandHandler("admin_payments", self.admin_payments_command))
+        self.app.add_handler(CommandHandler("admin_users", self.admin_users_command))
+        self.app.add_handler(CommandHandler("admin_cache", self.admin_cache_command))
+        self.app.add_handler(CommandHandler("admin_premium", self.admin_give_premium_command))
+        self.app.add_handler(CommandHandler("admin_stats", self.admin_stats_command))
         
         # Fotoğraf handler (dekont)
         self.app.add_handler(MessageHandler(filters.PHOTO, self.handle_photo))

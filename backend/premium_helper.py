@@ -52,6 +52,10 @@ class PremiumHelper:
     @staticmethod
     def can_create_coupon(user: Dict) -> tuple[bool, str]:
         """Kupon oluşturabilir mi kontrol et"""
+        # Admin her zaman olusturabilir
+        if user.get('is_admin'):
+            return True, "OK"
+        
         # Günlük limit kontrolü
         today = datetime.utcnow().strftime("%Y-%m-%d")
         last_coupon_date = user.get('last_coupon_date', '')
@@ -74,6 +78,10 @@ class PremiumHelper:
     @staticmethod
     def can_use_risk_level(user: Dict, risk_level: str) -> tuple[bool, str]:
         """Risk seviyesini kullanabilir mi"""
+        # Admin her seviyeyi kullanabilir
+        if user.get('is_admin'):
+            return True, "OK"
+        
         if risk_level == "zor":
             if not PremiumHelper.is_premium_active(user):
                 return False, "Zor seviye sadece Premium uyeler icin!\n\nPremium'a gec\n/premium"
