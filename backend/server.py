@@ -12,9 +12,9 @@ from contextlib import asynccontextmanager
 
 # Import custom modules
 from models import Match, Prediction, Coupon, User, BotActivity
-from scraper import SofaScoreScraper
-from ai_analyzer import AIMatchAnalyzer
-from coupon_generator import CouponGenerator
+from real_scraper import RealFootballScraper
+from ai_analyzer_v2 import AIMatchAnalyzerV2
+from coupon_generator_v2 import CouponGeneratorV2
 from telegram_bot import BettingBot
 
 ROOT_DIR = Path(__file__).parent
@@ -33,9 +33,9 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # Initialize components
-scraper = SofaScoreScraper()
-analyzer = AIMatchAnalyzer()
-coupon_gen = CouponGenerator()
+scraper = RealFootballScraper()
+analyzer = AIMatchAnalyzerV2()
+coupon_gen = CouponGeneratorV2()
 bot = BettingBot(db, scraper, analyzer, coupon_gen)
 
 # Global bot task
@@ -156,7 +156,7 @@ async def trigger_scrape():
     Manually trigger match scraping
     """
     try:
-        matches = await scraper.scrape_all_leagues()
+        matches = await scraper.get_today_matches()
         
         # Save to database
         for match in matches:

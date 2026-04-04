@@ -178,8 +178,8 @@ Lütfen risk seviyesini seçin:
         """
         Generate coupon by scraping matches, analyzing, and creating coupon
         """
-        # Scrape today's matches
-        matches = await self.scraper.scrape_all_leagues()
+        # Scrape today's matches (real data)
+        matches = await self.scraper.get_today_matches()
         
         if not matches:
             raise Exception("Bugün için maç bulunamadı.")
@@ -188,18 +188,16 @@ Lütfen risk seviyesini seçin:
         for match in matches:
             await self.db.matches.insert_one(match)
         
-        # Analyze matches with AI
-        predictions = []
-        for match in matches[:15]:  # Limit to 15 matches to avoid timeout
-            prediction = await self.analyzer.analyze_match(match)
-            prediction["match_id"] = match["id"]
-            predictions.append(prediction)
-            
-            # Save prediction
-            await self.db.predictions.insert_one(prediction)
+        # Analyze matches with AI (her maç için birden fazla tahmin)
+        all_predictions = []
+        for match in matches[:15]:  # İlk 15 maç
+            predictions = await self.analyzer.analyze_match(match)
+            for pred in predictions:
+                await self.db.predictions.insert_one(pred)
+                all_predictions.append(pred)
         
         # Generate coupon
-        coupon = self.coupon_gen.generate_coupon(risk_level, matches, predictions)
+        coupon = self.coupon_gen.generate_coupon(risk_level, matches, all_predictions)
         coupon["user_telegram_id"] = user_id
         
         # Save coupon
@@ -243,22 +241,40 @@ Lütfen risk seviyesini seçin:
 
 📊 **Toplam Oran:** {coupon['total_odds']}
 🎯 **Maç Sayısı:** {coupon['match_count']}
+💰 **100 TL İçin Kazanç:** {coupon.get('potential_return', 0):.2f} TL
 
 **Maçlar:**
 \n"""
         
         for i, match in enumerate(coupon["matches"], 1):
-            bet_name = {
+            # Yeni format - farklı bahis türlerini destekler
+            bet_type = match.get('bet_type', '1X2')
+            option = match.get('recommended_option', match.get('recommended_bet', '1'))
+            
+            bet_type_display = {
+                "1X2": "Maç Sonucu",
+                "over_under": "Alt/Üst",
+                "btts": "Karşılıklı Gol"
+            }.get(bet_type, bet_type)
+            
+            option_display = {
                 "1": "Ev Sahibi",
                 "X": "Beraberlik",
-                "2": "Deplasman"
-            }.get(match["recommended_bet"], "Bilinmiyor")
+                "2": "Deplasman",
+                "yes": "Evet",
+                "no": "Hayır",
+                "over_2.5": "Üst 2.5",
+                "under_2.5": "Alt 2.5"
+            }.get(option, option)
+            
+            odds_value = match.get('odds', match.get('predicted_odds', 0))
             
             message += f"""{i}. **{match['home_team']} vs {match['away_team']}**
    🏆 Lig: {match['league']}
-   📈 Tahmin: {bet_name} ({match['recommended_bet']})
-   💰 Oran: {match['predicted_odds']}
-   🎯 Güven: {match.get('confidence', 0)}%
+   📌 Bahis: {bet_type_display}
+   ✅ Tahmin: {option_display}
+   💵 Oran: {odds_value}
+   🎯 Güven: {match.get('confidence', 0):.0f}%
 
 """
         
