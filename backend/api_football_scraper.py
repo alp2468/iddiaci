@@ -14,39 +14,33 @@ load_dotenv(env_path)
 
 logger = logging.getLogger(__name__)
 
-# Lig ve Kupa ID'leri
-LEAGUES_AND_CUPS = {
-    # Türkiye
+# Lig ve Kupa ID'leri - ONCELIK SIRASINA GORE
+# Buyuk 5 Lig (HER ZAMAN CEK)
+TOP_LEAGUES = {
+    39: "İngiltere Premier Lig",
+    140: "İspanya La Liga",
+    78: "Almanya Bundesliga",
+    135: "İtalya Serie A",
+    61: "Fransa Ligue 1",
     203: "Türkiye Süper Lig",
+}
+
+# Alt Ligler ve Kupalar (SADECE BUYUK LIGDE YETERLİ MAC YOKSA)
+SECONDARY_LEAGUES = {
     204: "Türkiye 1. Lig",
     205: "Türkiye Kupası",
-    
-    # İngiltere
-    39: "İngiltere Premier Lig",
     40: "İngiltere Championship",
     2: "İngiltere FA Kupası",
     48: "İngiltere EFL Kupası",
-    
-    # İspanya
-    140: "İspanya La Liga",
     143: "İspanya Copa del Rey",
-    
-    # Almanya
-    78: "Almanya Bundesliga",
     81: "Almanya DFB Pokal",
-    
-    # İtalya
-    135: "İtalya Serie A",
     137: "İtalya Coppa Italia",
-    
-    # Fransa
-    61: "Fransa Ligue 1",
     66: "Fransa Coupe de France",
-    
-    # Hollanda
     88: "Hollanda Eredivisie",
-    94: "Hollanda KNVB Beker"
+    94: "Hollanda KNVB Beker",
 }
+
+ALL_LEAGUES = {**TOP_LEAGUES, **SECONDARY_LEAGUES}
 
 class APIFootballScraper:
     def __init__(self):
@@ -55,10 +49,11 @@ class APIFootballScraper:
         
     async def get_today_matches(self) -> List[Dict]:
         """
-        Bugünkü tüm maçları API-Football'dan çek
+        Bugünkü maçları çek - BUYUK 5 LIG ONCELIKLI
         """
         today = datetime.now().strftime("%Y-%m-%d")
-        all_matches = []
+        top_matches = []
+        secondary_matches = []
         
         headers = {
             "x-rapidapi-key": self.api_key,
@@ -69,7 +64,6 @@ class APIFootballScraper:
             try:
                 logger.info(f"Fetching matches for {today}...")
                 
-                # Bugünün tüm maçlarını çek
                 url = f"{self.base_url}/fixtures"
                 params = {"date": today}
                 
@@ -80,20 +74,33 @@ class APIFootballScraper:
                     fixtures = data['response']
                     logger.info(f"Total fixtures today: {len(fixtures)}")
                     
-                    # Sadece bizim ligleri filtrele
                     for fixture in fixtures:
                         league_id = fixture['league']['id']
-                        if league_id in LEAGUES_AND_CUPS:
-                            match = await self._parse_fixture(fixture, client, headers)
+                        
+                        if league_id in TOP_LEAGUES:
+                            match = await self._parse_fixture(fixture, client, headers, TOP_LEAGUES)
                             if match:
-                                all_matches.append(match)
+                                top_matches.append(match)
+                        elif league_id in SECONDARY_LEAGUES:
+                            match = await self._parse_fixture(fixture, client, headers, SECONDARY_LEAGUES)
+                            if match:
+                                secondary_matches.append(match)
                     
-                    logger.info(f"Filtered matches from our leagues: {len(all_matches)}")
+                    logger.info(f"Top league matches: {len(top_matches)}, Secondary: {len(secondary_matches)}")
                 
             except Exception as e:
                 logger.error(f"Error fetching matches: {str(e)}")
         
-        # Eğer bugün maç yoksa yarının maçlarını çek
+        # Buyuk lig maclari HER ZAMAN dahil
+        all_matches = top_matches[:]
+        
+        # Alt lig maclarini sadece buyuk lig az ise ekle (max 5 tane)
+        if len(top_matches) < 8 and secondary_matches:
+            max_secondary = min(5, 8 - len(top_matches))
+            all_matches.extend(secondary_matches[:max_secondary])
+            logger.info(f"Added {min(max_secondary, len(secondary_matches))} secondary matches")
+        
+        # Hic mac yoksa yarini dene
         if not all_matches:
             logger.info("No matches today, fetching tomorrow's matches...")
             tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -104,9 +111,10 @@ class APIFootballScraper:
     
     async def _fetch_matches_for_date(self, date: str, headers: Dict) -> List[Dict]:
         """
-        Belirli bir tarih için maçları çek
+        Belirli bir tarih için maçları çek - buyuk lig oncelikli
         """
-        matches = []
+        top_matches = []
+        secondary_matches = []
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
             try:
                 url = f"{self.base_url}/fixtures"
@@ -118,16 +126,25 @@ class APIFootballScraper:
                 if data.get('response'):
                     for fixture in data['response']:
                         league_id = fixture['league']['id']
-                        if league_id in LEAGUES_AND_CUPS:
-                            match = await self._parse_fixture(fixture, client, headers)
+                        if league_id in TOP_LEAGUES:
+                            match = await self._parse_fixture(fixture, client, headers, TOP_LEAGUES)
                             if match:
-                                matches.append(match)
+                                top_matches.append(match)
+                        elif league_id in SECONDARY_LEAGUES:
+                            match = await self._parse_fixture(fixture, client, headers, SECONDARY_LEAGUES)
+                            if match:
+                                secondary_matches.append(match)
             except Exception as e:
                 logger.error(f"Error: {str(e)}")
         
-        return matches
+        all_matches = top_matches[:]
+        if len(top_matches) < 8 and secondary_matches:
+            max_secondary = min(5, 8 - len(top_matches))
+            all_matches.extend(secondary_matches[:max_secondary])
+        
+        return all_matches
     
-    async def _parse_fixture(self, fixture: Dict, client, headers) -> Dict:
+    async def _parse_fixture(self, fixture: Dict, client, headers, league_map: Dict) -> Dict:
         """
         Fixture'ı parse et
         """
@@ -139,7 +156,7 @@ class APIFootballScraper:
             match_data = {
                 "id": match_id,
                 "api_match_id": str(fixture_id),
-                "league": LEAGUES_AND_CUPS[league_id],
+                "league": league_map.get(league_id, fixture['league']['name']),
                 "league_country": fixture['league']['country'],
                 "home_team": fixture['teams']['home']['name'],
                 "away_team": fixture['teams']['away']['name'],
