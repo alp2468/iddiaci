@@ -76,16 +76,18 @@ class CouponGeneratorV2:
     
     def _generate_banko_coupon(self, predictions: List[Dict]) -> List[Dict]:
         high_confidence = sorted(
-            [p for p in predictions if p.get('confidence', 0) > 70],
+            [p for p in predictions if p.get('confidence', 0) > 50],
             key=lambda x: x.get('confidence', 0),
             reverse=True
         )
         safe_predictions = [
             p for p in high_confidence
-            if 1.3 <= p.get('predicted_odds', 0) <= 2.0
+            if 1.3 <= p.get('predicted_odds', 0) <= 2.5
         ]
         if not safe_predictions:
             safe_predictions = high_confidence[:3]
+        if not safe_predictions and predictions:
+            safe_predictions = predictions[:3]
         selected = safe_predictions[:3]
         total = 1.0
         for p in selected:
@@ -96,7 +98,7 @@ class CouponGeneratorV2:
     
     def _generate_orta_coupon(self, predictions: List[Dict]) -> List[Dict]:
         medium_confidence = sorted(
-            [p for p in predictions if p.get('confidence', 0) > 60],
+            [p for p in predictions if p.get('confidence', 0) > 50],
             key=lambda x: x.get('confidence', 0),
             reverse=True
         )
@@ -106,6 +108,8 @@ class CouponGeneratorV2:
         ]
         if not medium_predictions:
             medium_predictions = medium_confidence
+        if not medium_predictions and predictions:
+            medium_predictions = predictions
         for count in range(4, 6):
             selected = medium_predictions[:count]
             total = 1.0

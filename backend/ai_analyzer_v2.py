@@ -23,10 +23,16 @@ class AIMatchAnalyzerV2:
                 parsed = self._parse_ai_predictions(pred, match)
                 if parsed:
                     parsed_predictions.extend(parsed)
+            
+            # Eğer hiç prediction yoksa fallback kullan
+            if not parsed_predictions:
+                logger.warning("No predictions parsed, using fallback")
+                parsed_predictions = self._generate_fallback_prediction(match)
+            
             return parsed_predictions
         except Exception as e:
             logger.error(f"Error analyzing match: {str(e)}")
-            return []
+            return self._generate_fallback_prediction(match)
     
     def _prepare_match_context(self, match: Dict) -> str:
         betting_opts_text = "\n".join([
@@ -69,10 +75,17 @@ ANALİZ: [Kısa analiz]
                 message = UserMessage(text=context)
                 response = await chat.send_message(message)
                 
+                logger.info(f"AI Response type: {type(response)}, value: {response}")
+                
+                # Response None ise veya boşsa skip
+                if not response:
+                    logger.warning(f"Empty response from {provider}")
+                    continue
+                
                 predictions.append({
                     "provider": provider,
                     "model": model,
-                    "response": response,
+                    "response": str(response),  # String'e çevir
                     "match": match
                 })
                 
@@ -148,7 +161,12 @@ ANALİZ: [Kısa analiz]
         return 2.0
     
     def _generate_fallback_prediction(self, match: Dict) -> List[Dict]:
+        """
+        AI yanıt vermezse fallback predictions oluştur
+        """
         predictions = []
+        
+        # 1X2 - En düşük oranlı seçeneği bul
         x2_options = [opt for opt in match.get('betting_options', []) if opt['bet_type'] == '1X2']
         if x2_options:
             safe_option = min(x2_options, key=lambda x: x['odds'])
@@ -157,8 +175,37 @@ ANALİZ: [Kısa analiz]
                 "bet_type": "1X2",
                 "recommended_option": safe_option['option'],
                 "predicted_odds": safe_option['odds'],
-                "confidence": 55.0,
-                "ai_analysis": "Güvenli tahmin",
+                "confidence": 65.0,
+                "ai_analysis": "Güvenli seçim (düşük oran)",
                 "ai_model": "fallback"
             })
-        return predictions
+        
+        # Over/Under - Genelde under güvenli
+        ou_options = [opt for opt in match.get('betting_options', []) if opt['bet_type'] == 'over_under']
+        if ou_options:
+            under_opt = next((opt for opt in ou_options if 'under' in opt['option']), ou_options[0])
+            predictions.append({
+                "match_id": match['id'],
+                "bet_type": "over_under",
+                "recommended_option": under_opt['option'],
+                "predicted_odds": under_opt['odds'],
+                "confidence": 60.0,
+                "ai_analysis": "Alt güvenli seçim",
+                "ai_model": "fallback"
+            })
+        
+        # BTTS
+        btts_options = [opt for opt in match.get('betting_options', []) if opt['bet_type'] == 'btts']
+        if btts_options:
+            no_opt = next((opt for opt in btts_options if opt['option'] == 'no'), btts_options[0])
+            predictions.append({
+                "match_id": match['id'],
+                "bet_type": "btts",
+                "recommended_option": no_opt['option'],
+                "predicted_odds": no_opt['odds'],
+                "confidence": 58.0,
+                "ai_analysis": "Karşılıklı gol yok tahmini",
+                "ai_model": "fallback"
+            })
+        
+        return predictions[:2]  # İlk 2 tahmini al
