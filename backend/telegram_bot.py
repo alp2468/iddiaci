@@ -48,20 +48,24 @@ class BettingBot:
         )
         
         welcome_message = f"""
-🎯 **Hoş Geldiniz {user.first_name}!**
+**Hos Geldiniz {user.first_name}!**
 
-Ben futbol maçlarını analiz edip sizin için bahis kuponları oluşturan bir botum.
+Ben futbol maclarini analiz edip sizin icin bahis kuponlari olusturan bir botum.
 
-📊 **Özellikler:**
-• 9 farklı ligden maç analizi
-• Yapay zeka destekli tahminler
-• 3 farklı risk seviyesi
+**Ozellikler:**
+- 9 farkli ligden mac analizi
+- Yapay zeka destekli tahminler
+- 3 farkli risk seviyesi
 
-🎮 **Komutlar:**
-/kupon - Yeni kupon oluştur
-/help - Yardım menüsü
+**Komutlar:**
+/kupon - Yeni kupon olustur
+/maclar - Bugunku maclari gor
+/kuponlarim - Kuponlarimi gor
+/premium - Premium uyelik
+/help - Yardim menusu
 
-Hemen başlamak için /kupon komutunu kullanın!
+Ucretsiz 3 kupon hakkiniz var!
+Hemen baslamak icin /kupon komutunu kullanin!
         """
         
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
@@ -79,35 +83,60 @@ Hemen başlamak için /kupon komutunu kullanın!
         """
         user = update.effective_user
         
+        # Kullanıcı bilgisini al
+        user_data = await self.db.users.find_one({"telegram_id": str(user.id)})
+        is_premium = user_data and self.premium_helper.is_premium_active(user_data)
+        
+        # Günlük kullanım hesapla
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        daily_count = 0
+        if user_data:
+            if user_data.get('last_coupon_date') == today:
+                daily_count = user_data.get('daily_coupon_count', 0)
+        
+        remaining = max(0, self.premium_helper.FREE_DAILY_LIMIT - daily_count) if not is_premium else 999
+        
         # Aylık başarı oranlarını hesapla
         success_rates = await self._calculate_monthly_success_rates()
         
+        # Zor seviye kilidi
+        zor_label = f"Zor (+10 Oran) | Bu Ay: %{success_rates['zor']}"
+        if not is_premium:
+            zor_label = "Zor (PREMIUM GEREKLI)"
+        
         keyboard = [
             [InlineKeyboardButton(
-                f"🟢 Banko (2-3 Oran) | Bu Ay: %{success_rates['banko']}", 
+                f"Banko (2-3 Oran) | Bu Ay: %{success_rates['banko']}", 
                 callback_data="risk_banko"
             )],
             [InlineKeyboardButton(
-                f"🟡 Orta (5-7 Oran) | Bu Ay: %{success_rates['orta']}", 
+                f"Orta (5-7 Oran) | Bu Ay: %{success_rates['orta']}", 
                 callback_data="risk_orta"
             )],
             [InlineKeyboardButton(
-                f"🔴 Zor (+10 Oran) | Bu Ay: %{success_rates['zor']}", 
+                zor_label, 
                 callback_data="risk_zor"
             )]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        if is_premium:
+            status_text = "Premium - Sinirsiz kupon"
+        else:
+            status_text = f"Ucretsiz - Kalan hak: {remaining}/{self.premium_helper.FREE_DAILY_LIMIT}"
+        
         message = f"""
-🎯 **Kupon Oluştur**
+**Kupon Olustur**
 
-Lütfen risk seviyesini seçin:
+{status_text}
 
-🟢 **Banko:** Düşük riskli, 2-3 maç | Bu ay %{success_rates['banko']} başarı
-🟡 **Orta:** Orta riskli, 3-5 maç | Bu ay %{success_rates['orta']} başarı
-🔴 **Zor:** Yüksek riskli, yüksek oran | Bu ay %{success_rates['zor']} başarı
+Lutfen risk seviyesini secin:
 
-📊 **Toplam Kupon:** {success_rates['total_coupons']} | ✅ Kazanan: {success_rates['won_coupons']}
+**Banko:** Dusuk riskli, 2-3 mac | Bu ay %{success_rates['banko']} basari
+**Orta:** Orta riskli, 3-5 mac | Bu ay %{success_rates['orta']} basari
+**Zor:** Yuksek riskli, yuksek oran | Bu ay %{success_rates['zor']} basari {'(Premium)' if not is_premium else ''}
+
+**Toplam Kupon:** {success_rates['total_coupons']} | Kazanan: {success_rates['won_coupons']}
         """
         
         await update.message.reply_text(message, reply_markup=reply_markup, parse_mode="Markdown")
@@ -130,6 +159,23 @@ Lütfen risk seviyesini seçin:
         
         if query.data.startswith("risk_"):
             risk_level = query.data.replace("risk_", "")
+            
+            # Kullanıcı bilgisini al
+            user_data = await self.db.users.find_one({"telegram_id": str(user.id)})
+            if not user_data:
+                user_data = {"telegram_id": str(user.id), "daily_coupon_count": 0, "last_coupon_date": ""}
+            
+            # Premium kontrol: Zor seviye sadece premium
+            can_use, msg = self.premium_helper.can_use_risk_level(user_data, risk_level)
+            if not can_use:
+                await query.edit_message_text(msg)
+                return
+            
+            # Premium kontrol: Günlük limit
+            can_create, msg = self.premium_helper.can_create_coupon(user_data)
+            if not can_create:
+                await query.edit_message_text(msg)
+                return
             
             # Show processing message with progress
             progress_msg = await query.edit_message_text(
@@ -201,43 +247,46 @@ Lütfen risk seviyesini seçin:
         Handle /help command
         """
         help_text = """
-📚 **Yardım Menüsü**
+**Yardim Menusu**
 
 **Komutlar:**
-/start - Botu başlat
-/kupon - Yeni kupon oluştur
-/kuponlarim - Kuponlarımı görüntüle
-/help - Bu yardım menüsünü göster
+/start - Botu baslat
+/kupon - Yeni kupon olustur
+/maclar - Bugunku maclari listele
+/kuponlarim - Kuponlarimi goruntule
+/premium - Premium uyelik bilgisi
+/odemeyaptim - Odeme dekontu gonder
+/help - Bu yardim menusunu goster
 
 **Risk Seviyeleri:**
 
-🟢 **Banko (2-3 Oran)**
-• 2-3 maç
-• Yüksek güvenilirlik
-• Düşük kazanç potansiyeli
+**Banko (2-3 Oran)**
+- 2-3 mac
+- Yuksek guvenilirlik
+- Dusuk kazanc potansiyeli
 
-🟡 **Orta (5-7 Oran)**
-• 3-5 maç
-• Orta güvenilirlik
-• Orta kazanç potansiyeli
+**Orta (5-7 Oran)**
+- 3-5 mac
+- Orta guvenilirlik
+- Orta kazanc potansiyeli
 
-🔴 **Zor (+10 Oran)**
-• 2 yüksek oranlı maç veya 5-8 maç
-• Düşük güvenilirlik
-• Yüksek kazanç potansiyeli
+**Zor (+10 Oran)** (Premium)
+- 2 yuksek oranli mac veya 5-8 mac
+- Dusuk guvenilirlik
+- Yuksek kazanc potansiyeli
+
+**Uyelik:**
+Ucretsiz: Gunde 3 kupon (Banko + Orta)
+Premium: Sinirsiz kupon + Zor seviye
 
 **Analiz Edilen Ligler:**
-• Türkiye Süper Lig
-• İngiltere Premier Lig
-• İngiltere Championship
-• İspanya La Liga
-• Almanya Bundesliga
-• İtalya Serie A
-• Fransa Ligue 1
-• Türkiye 1. Lig
-• Hollanda Eredivisie
+Turkiye Super Lig, Ingiltere Premier Lig,
+Ispanya La Liga, Almanya Bundesliga,
+Italya Serie A, Fransa Ligue 1,
+Ingiltere Championship, Turkiye 1. Lig,
+Hollanda Eredivisie
 
-💡 **Not:** Tüm tahminler yapay zeka destekli analizlere dayanır. Bahis oynarken dikkatli olun!
+Not: Tum tahminler yapay zeka destekli analizlere dayanir. Bahis oynarken dikkatli olun!
         """
         
         await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -260,23 +309,23 @@ Lütfen risk seviyesini seçin:
                 )
                 return
             
-            message = "📋 **Son Kuponlarınız:**\\n\\n"
+            message = "**Son Kuponlariniz:**\n\n"
             
             for i, coupon in enumerate(coupons, 1):
-                risk_emoji = {"banko": "🟢", "orta": "🟡", "zor": "🔴"}.get(coupon['risk_level'], "⚪")
+                risk_emoji = {"banko": "Banko", "orta": "Orta", "zor": "Zor"}.get(coupon['risk_level'], "?")
                 status_emoji = {
-                    "won": "✅ KAZANDI",
-                    "lost": "❌ TUTMADI",
-                    "pending": "⏳ Bekliyor"
-                }.get(coupon.get('status', 'pending'), "⏳")
+                    "won": "KAZANDI",
+                    "lost": "TUTMADI",
+                    "pending": "Bekliyor"
+                }.get(coupon.get('status', 'pending'), "Bekliyor")
                 
                 created = coupon.get('created_at', '')[:10]
                 
-                message += f"{i}. {risk_emoji} {coupon['risk_level'].upper()} | Oran: {coupon['total_odds']}\\n"
-                message += f"   {status_emoji} | {created}\\n"
-                message += f"   {coupon['match_count']} maç | {coupon.get('potential_return', 0):.0f} TL kazanç\\n\\n"
+                message += f"{i}. {risk_emoji} {coupon['risk_level'].upper()} | Oran: {coupon['total_odds']}\n"
+                message += f"   {status_emoji} | {created}\n"
+                message += f"   {coupon['match_count']} mac | {coupon.get('potential_return', 0):.0f} TL kazanc\n\n"
             
-            message += "\\n💡 **İpucu:** Kupon sonuçlarını manuel olarak kontrol edebilirsiniz."
+            message += "\nIpucu: Kupon sonuclarini manuel olarak kontrol edebilirsiniz."
             
             await update.message.reply_text(message, parse_mode="Markdown")
             
@@ -390,7 +439,24 @@ Lütfen risk seviyesini seçin:
             # 4. Kuponu kaydet
             await self.db.coupons.insert_one(coupon)
             
-            # 5. Log activity
+            # 5. Günlük kupon sayısını güncelle
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            user_data = await self.db.users.find_one({"telegram_id": user_id})
+            current_date = user_data.get('last_coupon_date', '') if user_data else ''
+            
+            if current_date == today:
+                await self.db.users.update_one(
+                    {"telegram_id": user_id},
+                    {"$inc": {"daily_coupon_count": 1, "total_coupons": 1}}
+                )
+            else:
+                await self.db.users.update_one(
+                    {"telegram_id": user_id},
+                    {"$set": {"daily_coupon_count": 1, "last_coupon_date": today}, "$inc": {"total_coupons": 1}},
+                    upsert=True
+                )
+            
+            # 6. Log activity
             await self.db.bot_activities.insert_one({
                 "activity_type": "coupon_generated",
                 "user_telegram_id": user_id,
@@ -478,17 +544,73 @@ Lütfen risk seviyesini seçin:
         
         return message
     
+    async def maclar_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Bugünkü maçları listele"""
+        
+        try:
+            matches = await self.cache_manager.get_cached_matches()
+            
+            if not matches:
+                await update.message.reply_text("Bugün için maç bulunamadı. Daha sonra tekrar deneyin.")
+                return
+            
+            # Liglere göre grupla
+            leagues = {}
+            for match in matches:
+                league = match.get('league', 'Diğer')
+                if league not in leagues:
+                    leagues[league] = []
+                leagues[league].append(match)
+            
+            message = f"**Bugünkü Maclar** ({len(matches)} mac)\n\n"
+            
+            for league, league_matches in leagues.items():
+                message += f"**{league}**\n"
+                for m in league_matches[:10]:
+                    time_str = m.get('match_time', '')
+                    message += f"  {time_str} {m['home_team']} vs {m['away_team']}\n"
+                message += "\n"
+            
+            message += "\n/kupon - Kupon olustur"
+            
+            # Telegram mesaj limiti 4096 karakter
+            if len(message) > 4000:
+                message = message[:3990] + "\n..."
+            
+            await update.message.reply_text(message, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Error in maclar command: {str(e)}")
+            await update.message.reply_text("Maclar yuklenirken hata olustu.")
+    
     def setup_handlers(self):
         """
         Setup bot handlers
         """
         self.app = Application.builder().token(self.token).build()
         
-        # Add handlers
+        # Temel komutlar
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("kupon", self.kupon_command))
         self.app.add_handler(CommandHandler("kuponlarim", self.my_coupons_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
+        self.app.add_handler(CommandHandler("maclar", self.maclar_command))
+        
+        # Premium komutlar
+        self.app.add_handler(CommandHandler("premium", self.premium_command))
+        self.app.add_handler(CommandHandler("odemeyaptim", self.odemeyaptim_command))
+        self.app.add_handler(CommandHandler("admin_payments", self.admin_payments_command))
+        
+        # Fotoğraf handler (dekont)
+        self.app.add_handler(MessageHandler(filters.PHOTO, self.handle_photo))
+        
+        # Admin onay/red komutları (approve_XXX, reject_XXX)
+        self.app.add_handler(MessageHandler(
+            filters.Regex(r'^/(approve|reject)_') & filters.User(int(self.admin_id)),
+            self.handle_admin_action
+        ))
+        
+        # Buton callback'leri
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         
         logger.info("Bot handlers setup complete")

@@ -1,0 +1,80 @@
+{
+  "summary": "Backend-only testing completed for Turkish Telegram betting bot. All 29 tests passed. Verified API endpoints, premium helper logic, and bot handler registrations.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "premium_helper.py:format_premium_info()",
+        "issue": "Documentation inconsistency: Message says 'Günde 5 kupon' but FREE_DAILY_LIMIT is 3. Should say 'Günde 3 kupon'",
+        "priority": "LOW"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api_endpoints.py",
+    "/app/backend/tests/test_premium_helper.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix format_premium_info() in premium_helper.py line 131: Change 'Günde 5 kupon' to 'Günde 3 kupon' to match FREE_DAILY_LIMIT=3"
+  ],
+  "critical_code_review_comments": [
+    "premium_helper.py line 131: format_premium_info() says 'Günde 5 kupon' but FREE_DAILY_LIMIT=3 - inconsistent documentation"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api_endpoints.py",
+    "/app/backend/tests/test_premium_helper.py",
+    "/app/backend/tests/conftest.py"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "N/A - skipped per request"
+  },
+  "test_credentials": "No auth required for API endpoints",
+  "seed_data_creation": "None - used existing data",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All backend APIs working. Premium system fully tested. Bot handlers verified. One minor doc inconsistency found in format_premium_info(). Telegram bot cannot be tested via HTTP - uses polling.",
+  "tests_passed": {
+    "api_endpoints": [
+      "/api/ returns running status",
+      "/api/stats returns statistics",
+      "/api/users returns user list",
+      "/api/coupons/recent returns coupon list",
+      "/api/success-rates returns success rate data",
+      "/api/matches/today returns matches",
+      "/api/predictions/recent returns predictions"
+    ],
+    "premium_helper": [
+      "FREE_DAILY_LIMIT is 3",
+      "can_create_coupon blocks after 3 free coupons",
+      "can_create_coupon allows premium unlimited",
+      "can_use_risk_level blocks 'zor' for non-premium",
+      "can_use_risk_level allows 'zor' for premium users",
+      "activate_premium returns correct fields",
+      "is_premium_active returns False for non-premium user",
+      "is_premium_active returns True for active premium user",
+      "is_premium_active returns False for expired premium"
+    ],
+    "bot_handlers": [
+      "start_command registered",
+      "kupon_command registered",
+      "maclar_command registered",
+      "kuponlarim_command registered",
+      "help_command registered",
+      "premium_command registered",
+      "odemeyaptim_command registered",
+      "admin_payments_command registered",
+      "handle_photo registered",
+      "handle_admin_action registered",
+      "button_callback registered"
+    ]
+  },
+  "mocked_apis_note": "AI analyzer has fallback predictions when LLM fails (as documented)"
+}

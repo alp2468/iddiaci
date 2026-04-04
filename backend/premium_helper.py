@@ -15,7 +15,7 @@ class PremiumHelper:
     }
     
     # Limitler
-    FREE_DAILY_LIMIT = 5
+    FREE_DAILY_LIMIT = 3
     PREMIUM_DAILY_LIMIT = 999999  # Sınırsız
     
     # Ödeme bilgileri (SENİN BİLGİLERİN)
@@ -67,7 +67,7 @@ class PremiumHelper:
             if PremiumHelper.is_premium_active(user):
                 return True, "OK"  # Premium sınırsız
             else:
-                return False, f"Günlük kupon limitiniz doldu! ({daily_count}/{limit})\\n\\n💎 Premium ile sınırsız kupon\\n/premium"
+                return False, f"Gunluk kupon limitiniz doldu! ({daily_count}/{limit})\n\nPremium ile sinirsiz kupon\n/premium"
         
         return True, "OK"
     
@@ -76,7 +76,7 @@ class PremiumHelper:
         """Risk seviyesini kullanabilir mi"""
         if risk_level == "zor":
             if not PremiumHelper.is_premium_active(user):
-                return False, "❌ Zor seviye sadece Premium üyeler için!\\n\\n💎 Premium'a geç\\n/premium"
+                return False, "Zor seviye sadece Premium uyeler icin!\n\nPremium'a gec\n/premium"
         
         return True, "OK"
     
