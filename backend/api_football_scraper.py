@@ -23,6 +23,8 @@ TOP_LEAGUES = {
     135: "İtalya Serie A",
     61: "Fransa Ligue 1",
     203: "Türkiye Süper Lig",
+    94: "Portekiz Liga",
+    207: "İsviçre Super Lig",
 }
 
 # Alt Ligler ve Kupalar (SADECE BUYUK LIGDE YETERLİ MAC YOKSA)
@@ -37,7 +39,6 @@ SECONDARY_LEAGUES = {
     137: "İtalya Coppa Italia",
     66: "Fransa Coupe de France",
     88: "Hollanda Eredivisie",
-    94: "Hollanda KNVB Beker",
 }
 
 ALL_LEAGUES = {**TOP_LEAGUES, **SECONDARY_LEAGUES}

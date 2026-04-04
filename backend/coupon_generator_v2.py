@@ -8,13 +8,15 @@ class CouponGeneratorV2:
     def __init__(self):
         # Lig öncelikleri - buyuk ligler agirlikli oncelikli
         self.league_priority = {
-            # Buyuk 5 Lig + Turkiye (EN YUKSEK ONCELIK)
+            # Buyuk Ligler (EN YUKSEK ONCELIK)
             "İngiltere Premier Lig": 20,
             "İspanya La Liga": 20,
             "Almanya Bundesliga": 20,
             "Fransa Ligue 1": 20,
-            "Türkiye Süper Lig": 18,
             "İtalya Serie A": 20,
+            "Türkiye Süper Lig": 18,
+            "Portekiz Liga": 16,
+            "İsviçre Super Lig": 16,
             
             # Buyuk Kupalar
             "Türkiye Kupası": 12,
@@ -31,7 +33,6 @@ class CouponGeneratorV2:
             "Türkiye 1. Lig": 5,
             "İngiltere Championship": 6,
             "Hollanda Eredivisie": 8,
-            "Portekiz Liga": 8,
         }
     
     def _get_league_priority(self, league: str) -> int:
@@ -40,7 +41,32 @@ class CouponGeneratorV2:
     
     def generate_coupon(self, risk_level: str, matches: List[Dict], predictions: List[Dict]) -> Dict:
         try:
-            enriched_predictions = self._enrich_predictions(matches, predictions)
+            # Baslamis maclari filtrele - sadece henuz baslamamislar
+            from datetime import datetime
+            now = datetime.utcnow()
+            active_matches = []
+            active_match_ids = set()
+            for m in matches:
+                match_date = m.get('match_date', '')
+                match_time = m.get('match_time', '')
+                try:
+                    match_dt = datetime.fromisoformat(f"{match_date}T{match_time}:00")
+                    if match_dt > now:
+                        active_matches.append(m)
+                        active_match_ids.add(m['id'])
+                except Exception:
+                    active_matches.append(m)
+                    active_match_ids.add(m['id'])
+            
+            # Tahminleri de filtrele
+            active_predictions = [p for p in predictions if p.get('match_id') in active_match_ids]
+            
+            if not active_predictions:
+                logger.warning("No active (not started) matches available for coupon")
+                active_matches = matches
+                active_predictions = predictions
+            
+            enriched_predictions = self._enrich_predictions(active_matches, active_predictions)
             
             if risk_level == "banko":
                 selected = self._generate_banko_coupon(enriched_predictions)
@@ -57,7 +83,9 @@ class CouponGeneratorV2:
             
             coupon_matches = []
             for pred in selected:
-                match = next((m for m in matches if m['id'] == pred['match_id']), None)
+                match = next((m for m in active_matches if m['id'] == pred['match_id']), None)
+                if not match:
+                    match = next((m for m in matches if m['id'] == pred['match_id']), None)
                 if match:
                     coupon_matches.append({
                         "match_id": pred['match_id'],
