@@ -41,23 +41,23 @@ class AIMatchAnalyzerV2:
         ])
         
         context = f"""
-Maç Analizi Yapılacak:
+Mac Analizi Yapilacak:
 
 Lig: {match.get('league', 'Bilinmiyor')}
 Ev Sahibi: {match.get('home_team', 'Bilinmiyor')}
 Deplasman: {match.get('away_team', 'Bilinmiyor')}
 Tarih: {match.get('match_date', 'Bilinmiyor')} {match.get('match_time', '')}
 
-Mevcut Bahis Seçenekleri:
+Mevcut Bahis Secenekleri:
 {betting_opts_text}
 
-Bu maç için EN İYİ 2 bahis tahmini yap.
-Her tahmin için şu formatı kullan:
-BAHİS_TÜRÜ: [1X2/over_under/btts]
-TAHMİN: [örn: 1, over_2.5, yes]
-ORAN: [bahis oranı]
-GÜVEN: [0-100]
-ANALİZ: [Kısa analiz]
+Bu mac icin EN IYI 4 bahis tahmini yap. Farkli bahis turlerinden sec.
+Her tahmin icin su formati kullan:
+BAHIS_TURU: [1X2/over_under/over_under_1_5/over_under_3_5/btts/double_chance/ht_result/odd_even]
+TAHMIN: [orn: 1, X, 2, over_2.5, under_2.5, over_1.5, under_3.5, yes, no, 1X, 12, X2, HT_1, HT_X, HT_2, tek, cift]
+ORAN: [bahis orani]
+GUVEN: [0-100]
+ANALIZ: [Kisa analiz]
 ---
 """
         return context
@@ -108,26 +108,27 @@ ANALİZ: [Kısa analiz]
                 lines = section.strip().split('\n')
                 
                 for line in lines:
-                    if 'BAHİS' in line or 'BAHIS' in line:
-                        bet_type = line.split(':')[1].strip()
+                    line_upper = line.upper()
+                    if 'BAHIS' in line_upper or 'BAHİS' in line_upper:
+                        bet_type = line.split(':')[1].strip().lower()
                         pred['bet_type'] = bet_type
-                    elif 'TAHMİN' in line or 'TAHMIN' in line:
+                    elif 'TAHMIN' in line_upper or 'TAHMİN' in line_upper:
                         option = line.split(':')[1].strip()
                         pred['option'] = option
-                    elif 'ORAN' in line:
+                    elif 'ORAN' in line_upper:
                         try:
                             odds = float(line.split(':')[1].strip())
                             pred['odds'] = odds
                         except Exception:
                             pred['odds'] = 2.0
-                    elif 'GÜV' in line or 'GUVEN' in line:
+                    elif 'GUVEN' in line_upper or 'GÜV' in line_upper:
                         try:
                             conf_str = line.split(':')[1].strip()
                             conf = float(''.join(filter(str.isdigit, conf_str)))
                             pred['confidence'] = conf
                         except Exception:
                             pred['confidence'] = 60.0
-                    elif 'ANALİZ' in line or 'ANALIZ' in line:
+                    elif 'ANALIZ' in line_upper or 'ANALİZ' in line_upper:
                         analysis = line.split(':')[1].strip()
                         pred['analysis'] = analysis
                 
@@ -161,51 +162,94 @@ ANALİZ: [Kısa analiz]
         return 2.0
     
     def _generate_fallback_prediction(self, match: Dict) -> List[Dict]:
-        """
-        AI yanıt vermezse fallback predictions oluştur
-        """
+        """Fallback: farkli turlerden tahminler olustur"""
+        import random
         predictions = []
+        bet_opts = match.get('betting_options', [])
         
-        # 1X2 - En düşük oranlı seçeneği bul
-        x2_options = [opt for opt in match.get('betting_options', []) if opt['bet_type'] == '1X2']
+        # 1X2
+        x2_options = [opt for opt in bet_opts if opt['bet_type'] == '1X2']
         if x2_options:
             safe_option = min(x2_options, key=lambda x: x['odds'])
             predictions.append({
-                "match_id": match['id'],
-                "bet_type": "1X2",
+                "match_id": match['id'], "bet_type": "1X2",
                 "recommended_option": safe_option['option'],
                 "predicted_odds": safe_option['odds'],
-                "confidence": 65.0,
-                "ai_analysis": "Güvenli seçim (düşük oran)",
+                "confidence": 65.0, "ai_analysis": "Mac sonucu tahmini",
                 "ai_model": "fallback"
             })
         
-        # Over/Under - Genelde under güvenli
-        ou_options = [opt for opt in match.get('betting_options', []) if opt['bet_type'] == 'over_under']
-        if ou_options:
-            under_opt = next((opt for opt in ou_options if 'under' in opt['option']), ou_options[0])
+        # Cifte Sans
+        dc_options = [opt for opt in bet_opts if opt['bet_type'] == 'double_chance']
+        if dc_options:
+            safe_dc = min(dc_options, key=lambda x: x['odds'])
             predictions.append({
-                "match_id": match['id'],
-                "bet_type": "over_under",
-                "recommended_option": under_opt['option'],
-                "predicted_odds": under_opt['odds'],
-                "confidence": 60.0,
-                "ai_analysis": "Alt güvenli seçim",
+                "match_id": match['id'], "bet_type": "double_chance",
+                "recommended_option": safe_dc['option'],
+                "predicted_odds": safe_dc['odds'],
+                "confidence": 75.0, "ai_analysis": "Cifte sans guvenli secim",
+                "ai_model": "fallback"
+            })
+        
+        # Over/Under 2.5
+        ou_options = [opt for opt in bet_opts if opt['bet_type'] == 'over_under']
+        if ou_options:
+            pick = random.choice(ou_options)
+            predictions.append({
+                "match_id": match['id'], "bet_type": "over_under",
+                "recommended_option": pick['option'],
+                "predicted_odds": pick['odds'],
+                "confidence": 60.0, "ai_analysis": "Ust/Alt 2.5 tahmini",
+                "ai_model": "fallback"
+            })
+        
+        # Over/Under 1.5
+        ou15_options = [opt for opt in bet_opts if opt['bet_type'] == 'over_under_1_5']
+        if ou15_options:
+            over15 = next((o for o in ou15_options if 'over' in o['option']), ou15_options[0])
+            predictions.append({
+                "match_id": match['id'], "bet_type": "over_under_1_5",
+                "recommended_option": over15['option'],
+                "predicted_odds": over15['odds'],
+                "confidence": 72.0, "ai_analysis": "1.5 ust guvenli",
                 "ai_model": "fallback"
             })
         
         # BTTS
-        btts_options = [opt for opt in match.get('betting_options', []) if opt['bet_type'] == 'btts']
+        btts_options = [opt for opt in bet_opts if opt['bet_type'] == 'btts']
         if btts_options:
-            no_opt = next((opt for opt in btts_options if opt['option'] == 'no'), btts_options[0])
+            pick = random.choice(btts_options)
             predictions.append({
-                "match_id": match['id'],
-                "bet_type": "btts",
-                "recommended_option": no_opt['option'],
-                "predicted_odds": no_opt['odds'],
-                "confidence": 58.0,
-                "ai_analysis": "Karşılıklı gol yok tahmini",
+                "match_id": match['id'], "bet_type": "btts",
+                "recommended_option": pick['option'],
+                "predicted_odds": pick['odds'],
+                "confidence": 58.0, "ai_analysis": "KG tahmini",
                 "ai_model": "fallback"
             })
         
-        return predictions[:2]  # İlk 2 tahmini al
+        # Ilk Yari
+        ht_options = [opt for opt in bet_opts if opt['bet_type'] == 'ht_result']
+        if ht_options:
+            pick = random.choice(ht_options)
+            predictions.append({
+                "match_id": match['id'], "bet_type": "ht_result",
+                "recommended_option": pick['option'],
+                "predicted_odds": pick['odds'],
+                "confidence": 55.0, "ai_analysis": "Ilk yari sonucu",
+                "ai_model": "fallback"
+            })
+        
+        # Tek/Cift
+        oe_options = [opt for opt in bet_opts if opt['bet_type'] == 'odd_even']
+        if oe_options:
+            pick = random.choice(oe_options)
+            predictions.append({
+                "match_id": match['id'], "bet_type": "odd_even",
+                "recommended_option": pick['option'],
+                "predicted_odds": pick['odds'],
+                "confidence": 50.0, "ai_analysis": "Tek/Cift tahmini",
+                "ai_model": "fallback"
+            })
+        
+        random.shuffle(predictions)
+        return predictions[:4]

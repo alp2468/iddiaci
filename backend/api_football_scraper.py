@@ -209,7 +209,6 @@ class APIFootballScraper:
                 for value in values:
                     option_name = value.get('value')
                     odds = float(value.get('odd', 0))
-                    
                     if 'Home' in option_name:
                         options.append({"bet_type": "1X2", "option": "1", "odds": odds, "bookmaker": None})
                     elif 'Draw' in option_name:
@@ -217,41 +216,102 @@ class APIFootballScraper:
                     elif 'Away' in option_name:
                         options.append({"bet_type": "1X2", "option": "2", "odds": odds, "bookmaker": None})
             
-            # Over/Under
-            elif 'Goals Over/Under' in bet_name:
+            # Double Chance (Cifte Sans)
+            elif 'Double Chance' in bet_name:
                 for value in values:
                     option_name = value.get('value', '')
                     odds = float(value.get('odd', 0))
-                    
+                    if 'Home' in option_name and 'Draw' in option_name:
+                        options.append({"bet_type": "double_chance", "option": "1X", "odds": odds, "bookmaker": None})
+                    elif 'Home' in option_name and 'Away' in option_name:
+                        options.append({"bet_type": "double_chance", "option": "12", "odds": odds, "bookmaker": None})
+                    elif 'Draw' in option_name and 'Away' in option_name:
+                        options.append({"bet_type": "double_chance", "option": "X2", "odds": odds, "bookmaker": None})
+            
+            # Over/Under 2.5
+            elif 'Goals Over/Under' in bet_name and '1.5' not in bet_name and '3.5' not in bet_name:
+                for value in values:
+                    option_name = value.get('value', '')
+                    odds = float(value.get('odd', 0))
                     if 'Over' in option_name:
                         options.append({"bet_type": "over_under", "option": "over_2.5", "odds": odds, "bookmaker": None})
                     elif 'Under' in option_name:
                         options.append({"bet_type": "over_under", "option": "under_2.5", "odds": odds, "bookmaker": None})
+            
+            # Over/Under 1.5
+            elif 'Over/Under 1.5' in bet_name or ('Goals' in bet_name and '1.5' in bet_name):
+                for value in values:
+                    option_name = value.get('value', '')
+                    odds = float(value.get('odd', 0))
+                    if 'Over' in option_name:
+                        options.append({"bet_type": "over_under_1_5", "option": "over_1.5", "odds": odds, "bookmaker": None})
+                    elif 'Under' in option_name:
+                        options.append({"bet_type": "over_under_1_5", "option": "under_1.5", "odds": odds, "bookmaker": None})
+            
+            # Over/Under 3.5
+            elif 'Over/Under 3.5' in bet_name or ('Goals' in bet_name and '3.5' in bet_name):
+                for value in values:
+                    option_name = value.get('value', '')
+                    odds = float(value.get('odd', 0))
+                    if 'Over' in option_name:
+                        options.append({"bet_type": "over_under_3_5", "option": "over_3.5", "odds": odds, "bookmaker": None})
+                    elif 'Under' in option_name:
+                        options.append({"bet_type": "over_under_3_5", "option": "under_3.5", "odds": odds, "bookmaker": None})
             
             # BTTS
             elif 'Both Teams Score' in bet_name:
                 for value in values:
                     option_name = value.get('value', '')
                     odds = float(value.get('odd', 0))
-                    
                     if 'Yes' in option_name:
                         options.append({"bet_type": "btts", "option": "yes", "odds": odds, "bookmaker": None})
                     elif 'No' in option_name:
                         options.append({"bet_type": "btts", "option": "no", "odds": odds, "bookmaker": None})
+            
+            # HT Result (Ilk Yari Sonucu)
+            elif 'HT' in bet_name and 'Result' in bet_name:
+                for value in values:
+                    option_name = value.get('value', '')
+                    odds = float(value.get('odd', 0))
+                    if 'Home' in option_name:
+                        options.append({"bet_type": "ht_result", "option": "HT_1", "odds": odds, "bookmaker": None})
+                    elif 'Draw' in option_name:
+                        options.append({"bet_type": "ht_result", "option": "HT_X", "odds": odds, "bookmaker": None})
+                    elif 'Away' in option_name:
+                        options.append({"bet_type": "ht_result", "option": "HT_2", "odds": odds, "bookmaker": None})
+            
+            # Odd/Even (Tek/Cift)
+            elif 'Odd/Even' in bet_name or 'Total - Odd/Even' in bet_name:
+                for value in values:
+                    option_name = value.get('value', '')
+                    odds = float(value.get('odd', 0))
+                    if 'Odd' in option_name:
+                        options.append({"bet_type": "odd_even", "option": "tek", "odds": odds, "bookmaker": None})
+                    elif 'Even' in option_name:
+                        options.append({"bet_type": "odd_even", "option": "cift", "odds": odds, "bookmaker": None})
         
         return options if options else self._generate_default_odds()
     
     def _generate_default_odds(self) -> List[Dict]:
-        """
-        Default oranlar
-        """
         import random
         return [
             {"bet_type": "1X2", "option": "1", "odds": round(random.uniform(1.6, 2.8), 2), "bookmaker": None},
             {"bet_type": "1X2", "option": "X", "odds": round(random.uniform(3.0, 3.8), 2), "bookmaker": None},
             {"bet_type": "1X2", "option": "2", "odds": round(random.uniform(1.8, 3.2), 2), "bookmaker": None},
+            {"bet_type": "double_chance", "option": "1X", "odds": round(random.uniform(1.15, 1.55), 2), "bookmaker": None},
+            {"bet_type": "double_chance", "option": "12", "odds": round(random.uniform(1.10, 1.40), 2), "bookmaker": None},
+            {"bet_type": "double_chance", "option": "X2", "odds": round(random.uniform(1.20, 1.60), 2), "bookmaker": None},
             {"bet_type": "over_under", "option": "over_2.5", "odds": round(random.uniform(1.7, 2.1), 2), "bookmaker": None},
             {"bet_type": "over_under", "option": "under_2.5", "odds": round(random.uniform(1.7, 2.1), 2), "bookmaker": None},
+            {"bet_type": "over_under_1_5", "option": "over_1.5", "odds": round(random.uniform(1.20, 1.50), 2), "bookmaker": None},
+            {"bet_type": "over_under_1_5", "option": "under_1.5", "odds": round(random.uniform(2.50, 3.50), 2), "bookmaker": None},
+            {"bet_type": "over_under_3_5", "option": "over_3.5", "odds": round(random.uniform(2.20, 3.00), 2), "bookmaker": None},
+            {"bet_type": "over_under_3_5", "option": "under_3.5", "odds": round(random.uniform(1.30, 1.55), 2), "bookmaker": None},
             {"bet_type": "btts", "option": "yes", "odds": round(random.uniform(1.8, 2.2), 2), "bookmaker": None},
-            {"bet_type": "btts", "option": "no", "odds": round(random.uniform(1.7, 2.0), 2), "bookmaker": None}
+            {"bet_type": "btts", "option": "no", "odds": round(random.uniform(1.7, 2.0), 2), "bookmaker": None},
+            {"bet_type": "ht_result", "option": "HT_1", "odds": round(random.uniform(2.0, 3.5), 2), "bookmaker": None},
+            {"bet_type": "ht_result", "option": "HT_X", "odds": round(random.uniform(1.8, 2.5), 2), "bookmaker": None},
+            {"bet_type": "ht_result", "option": "HT_2", "odds": round(random.uniform(2.5, 4.5), 2), "bookmaker": None},
+            {"bet_type": "odd_even", "option": "tek", "odds": round(random.uniform(1.85, 2.00), 2), "bookmaker": None},
+            {"bet_type": "odd_even", "option": "cift", "odds": round(random.uniform(1.85, 2.00), 2), "bookmaker": None},
         ]

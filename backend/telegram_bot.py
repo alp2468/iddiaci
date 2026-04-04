@@ -504,9 +504,14 @@ Not: Tum tahminler yapay zeka destekli analizlere dayanir. Bahis oynarken dikkat
             option = match.get('recommended_option', match.get('recommended_bet', '1'))
             
             bet_type_display = {
-                "1X2": "Maç Sonucu",
-                "over_under": "Alt/Üst",
-                "btts": "Karşılıklı Gol"
+                "1X2": "Mac Sonucu",
+                "over_under": "Alt/Ust 2.5",
+                "over_under_1_5": "Alt/Ust 1.5",
+                "over_under_3_5": "Alt/Ust 3.5",
+                "btts": "Karsilikli Gol",
+                "double_chance": "Cifte Sans",
+                "ht_result": "Ilk Yari Sonucu",
+                "odd_even": "Tek/Cift Gol"
             }.get(bet_type, bet_type)
             
             option_display = {
@@ -514,9 +519,21 @@ Not: Tum tahminler yapay zeka destekli analizlere dayanir. Bahis oynarken dikkat
                 "X": "Beraberlik",
                 "2": "Deplasman",
                 "yes": "Evet",
-                "no": "Hayır",
-                "over_2.5": "Üst 2.5",
-                "under_2.5": "Alt 2.5"
+                "no": "Hayir",
+                "over_2.5": "Ust 2.5",
+                "under_2.5": "Alt 2.5",
+                "over_1.5": "Ust 1.5",
+                "under_1.5": "Alt 1.5",
+                "over_3.5": "Ust 3.5",
+                "under_3.5": "Alt 3.5",
+                "1X": "1 veya X",
+                "12": "1 veya 2",
+                "X2": "X veya 2",
+                "HT_1": "Ev Sahibi",
+                "HT_X": "Beraberlik",
+                "HT_2": "Deplasman",
+                "tek": "Tek",
+                "cift": "Cift"
             }.get(option, option)
             
             odds_value = match.get('odds', match.get('predicted_odds', 0))
