@@ -5,7 +5,33 @@ logger = logging.getLogger(__name__)
 
 class CouponGeneratorV2:
     def __init__(self):
-        pass
+        # Lig öncelikleri (skor: yüksek = öncelikli)
+        self.league_priority = {
+            # 5 Büyük Lig (Öncelikli)
+            "İngiltere Premier Lig": 10,
+            "İspanya La Liga": 10,
+            "Almanya Bundesliga": 10,
+            "İtalya Serie A": 10,
+            "Fransa Ligue 1": 10,
+            "Türkiye Süper Lig": 9,
+            
+            # Kupalar (Orta öncelik)
+            "Türkiye Kupası": 7,
+            "İngiltere FA Kupası": 8,
+            "İspanya Copa del Rey": 8,
+            "Almanya DFB Pokal": 8,
+            "İtalya Coppa Italia": 8,
+            "Fransa Coupe de France": 8,
+            
+            # Alt Ligler (Düşük öncelik)
+            "Türkiye 1. Lig": 4,
+            "İngiltere Championship": 5,
+            "Hollanda Eredivisie": 6,
+        }
+    
+    def _get_league_priority(self, league: str) -> int:
+        """Lig öncelik skorunu döndür"""
+        return self.league_priority.get(league, 3)  # Default: 3
     
     def generate_coupon(self, risk_level: str, matches: List[Dict], predictions: List[Dict]) -> Dict:
         try:
@@ -66,18 +92,24 @@ class CouponGeneratorV2:
         for pred in predictions:
             match = next((m for m in matches if m['id'] == pred.get('match_id')), None)
             if match:
+                league = match['league']
+                league_priority = self._get_league_priority(league)
+                
                 enriched.append({
                     **pred,
                     'home_team': match['home_team'],
                     'away_team': match['away_team'],
-                    'league': match['league']
+                    'league': league,
+                    'league_priority': league_priority,
+                    'adjusted_confidence': pred.get('confidence', 0) + (league_priority * 1.5)
                 })
         return enriched
     
     def _generate_banko_coupon(self, predictions: List[Dict]) -> List[Dict]:
+        # Adjusted confidence'a göre sırala (lig önceliği dahil)
         high_confidence = sorted(
-            [p for p in predictions if p.get('confidence', 0) > 50],
-            key=lambda x: x.get('confidence', 0),
+            [p for p in predictions if p.get('adjusted_confidence', 0) > 60],
+            key=lambda x: x.get('adjusted_confidence', 0),
             reverse=True
         )
         safe_predictions = [
@@ -88,7 +120,24 @@ class CouponGeneratorV2:
             safe_predictions = high_confidence[:3]
         if not safe_predictions and predictions:
             safe_predictions = predictions[:3]
-        selected = safe_predictions[:3]
+        
+        # En fazla 1 alt lig maçı (öncelik < 7)
+        selected = []
+        low_league_count = 0
+        for pred in safe_predictions:
+            if pred.get('league_priority', 5) < 7:
+                if low_league_count < 1:  # En fazla 1 alt lig
+                    selected.append(pred)
+                    low_league_count += 1
+            else:
+                selected.append(pred)
+            
+            if len(selected) >= 3:
+                break
+        
+        if not selected:
+            selected = safe_predictions[:3]
+        
         total = 1.0
         for p in selected:
             total *= p.get('predicted_odds', 1.0)
@@ -98,8 +147,8 @@ class CouponGeneratorV2:
     
     def _generate_orta_coupon(self, predictions: List[Dict]) -> List[Dict]:
         medium_confidence = sorted(
-            [p for p in predictions if p.get('confidence', 0) > 50],
-            key=lambda x: x.get('confidence', 0),
+            [p for p in predictions if p.get('adjusted_confidence', 0) > 55],
+            key=lambda x: x.get('adjusted_confidence', 0),
             reverse=True
         )
         medium_predictions = [
@@ -110,14 +159,29 @@ class CouponGeneratorV2:
             medium_predictions = medium_confidence
         if not medium_predictions and predictions:
             medium_predictions = predictions
+        
+        # En fazla 2 alt lig maçı
+        selected = []
+        low_league_count = 0
+        for pred in medium_predictions:
+            if pred.get('league_priority', 5) < 7:
+                if low_league_count < 2:
+                    selected.append(pred)
+                    low_league_count += 1
+            else:
+                selected.append(pred)
+            
+            if len(selected) >= 6:
+                break
+        
         for count in range(4, 6):
-            selected = medium_predictions[:count]
+            temp_selected = selected[:count]
             total = 1.0
-            for p in selected:
+            for p in temp_selected:
                 total *= p.get('predicted_odds', 1.0)
             if 5.0 <= total <= 8.0:
-                return selected
-        return medium_predictions[:4]
+                return temp_selected
+        return selected[:4]
     
     def _generate_zor_coupon(self, predictions: List[Dict]) -> List[Dict]:
         high_odds = sorted(
