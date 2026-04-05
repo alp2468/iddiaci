@@ -5,6 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import asyncio
@@ -50,14 +51,16 @@ async def lifespan(app: FastAPI):
     bot_task = asyncio.create_task(bot.start_polling())
     logger.info("Telegram bot started")
     
-    # Premium kontrol gorevi (her 6 saatte bir)
+    # Zamanli gorevler
     premium_task = asyncio.create_task(premium_check_loop())
+    cache_task = asyncio.create_task(daily_cache_loop())
     
     yield
     
     # Shutdown
     logger.info("Stopping Telegram bot...")
     premium_task.cancel()
+    cache_task.cancel()
     if bot_task:
         await bot.stop_polling()
         bot_task.cancel()
@@ -65,11 +68,41 @@ async def lifespan(app: FastAPI):
     logger.info("Shutdown complete")
 
 
+async def daily_cache_loop():
+    """Her gun saat 10:00 (UTC+3 = 07:00 UTC) da maclari cek"""
+    while True:
+        try:
+            now = datetime.utcnow()
+            # Hedef: bugun veya yarin saat 07:00 UTC (10:00 TR)
+            target = now.replace(hour=7, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target += timedelta(days=1)
+            
+            wait_seconds = (target - now).total_seconds()
+            logger.info(f"Daily cache: next refresh in {wait_seconds/3600:.1f} hours ({target.strftime('%Y-%m-%d %H:%M')} UTC)")
+            
+            await asyncio.sleep(wait_seconds)
+            
+            # Maclari cek
+            logger.info("Daily cache refresh triggered!")
+            success = await bot.cache_manager.refresh_cache()
+            if success:
+                logger.info("Daily cache refresh completed successfully")
+            else:
+                logger.warning("Daily cache refresh failed - API might be down")
+                
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Daily cache loop error: {e}")
+            await asyncio.sleep(3600)  # Hata olursa 1 saat bekle
+
+
 async def premium_check_loop():
     """Suresi dolan premiumlari kaldir, hatirlatma gonder"""
     while True:
         try:
-            await asyncio.sleep(6 * 3600)  # 6 saat
+            await asyncio.sleep(6 * 3600)
             await bot.check_expired_premiums()
         except asyncio.CancelledError:
             break

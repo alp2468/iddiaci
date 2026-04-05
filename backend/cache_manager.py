@@ -1,5 +1,5 @@
 """
-Match Cache Manager - Performans için maç verilerini cache'ler
+Match Cache Manager - Her gun saat 10:00'da API'den mac ceker, gun boyunca cache kullanir
 """
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import datetime, timedelta
@@ -12,85 +12,80 @@ class MatchCacheManager:
     def __init__(self, db: AsyncIOMotorDatabase, scraper):
         self.db = db
         self.scraper = scraper
-        self.cache_duration_hours = 6  # 6 saatte bir yenile
     
     async def get_cached_matches(self) -> List[Dict]:
-        """
-        Cache'den maçları getir, yoksa veya eskiyse yenile
-        """
+        """Cache'den maclari getir. Bugunun verisi yoksa bos doner (saat 10'da cekilecek)"""
         try:
-            # Son cache zamanını kontrol et
+            today = datetime.utcnow().strftime("%Y-%m-%d")
             cache_info = await self.db.cache_info.find_one({"type": "matches"})
             
-            needs_refresh = True
-            if cache_info:
-                last_update = datetime.fromisoformat(cache_info['last_update'])
-                age = datetime.utcnow() - last_update
-                
-                if age < timedelta(hours=self.cache_duration_hours):
-                    needs_refresh = False
-                    logger.info(f"Using cached matches (age: {age})")
+            # Bugunun verisi var mi?
+            if cache_info and cache_info.get('cache_date') == today:
+                matches = await self.db.matches.find({}).to_list(1000)
+                for match in matches:
+                    match.pop('_id', None)
+                logger.info(f"Using today's cache: {len(matches)} matches")
+                return matches
             
-            if needs_refresh:
-                logger.info("Cache expired or missing, fetching fresh matches...")
-                await self.refresh_cache()
-            
-            # Cache'den maçları getir
+            # Bugunun verisi yok - eski veri varsa onu dondur (saat 10'a kadar)
             matches = await self.db.matches.find({}).to_list(1000)
+            if matches:
+                for match in matches:
+                    match.pop('_id', None)
+                logger.info(f"Using old cache: {len(matches)} matches (waiting for daily refresh)")
+                return matches
             
-            # _id'leri temizle
+            # Hic veri yok - ilk kez cek
+            logger.info("No cache at all, doing initial fetch...")
+            await self.refresh_cache()
+            matches = await self.db.matches.find({}).to_list(1000)
             for match in matches:
                 match.pop('_id', None)
-            
-            logger.info(f"Returning {len(matches)} cached matches")
             return matches
             
         except Exception as e:
             logger.error(f"Cache error: {str(e)}")
-            # Hata durumunda direkt API'den çek
-            return await self.scraper.get_today_matches()
+            return []
     
     async def refresh_cache(self):
-        """
-        Cache'i yenile - API'den maçları çek ve kaydet
-        """
+        """API'den maclari cek ve cache'e kaydet"""
         try:
-            logger.info("Refreshing match cache...")
+            logger.info("Refreshing match cache from API...")
+            today = datetime.utcnow().strftime("%Y-%m-%d")
             
-            # API'den maçları çek
             fresh_matches = await self.scraper.get_today_matches()
             
             if not fresh_matches:
-                logger.warning("No matches fetched, keeping old cache")
-                return
+                logger.warning("No matches fetched from API, keeping old cache")
+                return False
             
-            # Eski maçları temizle
+            # Eski maclari temizle
             await self.db.matches.delete_many({})
             
-            # Yeni maçları kaydet
-            if fresh_matches:
-                await self.db.matches.insert_many(fresh_matches)
+            # Yeni maclari kaydet
+            await self.db.matches.insert_many(fresh_matches)
             
-            # Cache bilgisini güncelle
+            # Cache bilgisini guncelle
             await self.db.cache_info.update_one(
                 {"type": "matches"},
                 {
                     "$set": {
                         "type": "matches",
                         "last_update": datetime.utcnow().isoformat(),
+                        "cache_date": today,
                         "match_count": len(fresh_matches)
                     }
                 },
                 upsert=True
             )
             
-            logger.info(f"Cache refreshed with {len(fresh_matches)} matches")
+            logger.info(f"Cache refreshed: {len(fresh_matches)} matches for {today}")
+            return True
             
         except Exception as e:
             logger.error(f"Error refreshing cache: {str(e)}")
+            return False
     
     async def force_refresh(self):
-        """
-        Manuel cache yenileme (admin komutu için)
-        """
-        await self.refresh_cache()
+        """Manuel cache yenileme (admin komutu icin)"""
+        return await self.refresh_cache()
